@@ -1,5 +1,6 @@
 package com.example.demo.threadPoolDemo;
 
+
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -19,7 +20,15 @@ public class ThreadPoolDemo {
                     executor.getQueue().size() + "，已执行玩别的任务数目：" + executor.getCompletedTaskCount());
         }
         executor.shutdown();
-    }
+        ///////////////////
+
+//        ExecutorService fixedThreadPool = Executors.newFixedThreadPool(3);
+//        for (int i = 0; i < 10; i++) {
+//            final int index = i;
+//            executor.execute();
+//
+//
+        }
 }
 
 
