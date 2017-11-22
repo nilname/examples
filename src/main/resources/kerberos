@@ -1,0 +1,229 @@
+Kerberos集群规划
+
+
+Kerberos安装配置
+
+一、安装KDC server
+二、修改配置文件
+1）/etc/krb5.conf
+2）/var/kerberos/krb5kdc/kdc.conf
+3）/var/kerberos/krb5kdc/kadm5.acl
+三、同步/etc/krb5.conf到其他服务器
+四、创建数据库
+五、启动服务
+六、创建Kerberos管理员
+七、测试Kerberos
+
+
+1、安装KDC server
+[root@cdh1 yum.repos.d]# yum install krb5-server krb5-auth-dialog krb5-libs krb5-workstation krb5-devel –y
+[root@cdh2 yum.repos.d]# yum install krb5-workstation krb5-devel –y
+[root@cdh3 yum.repos.d]# yum install krb5-workstation krb5-devel –y
+
+
+2、修改配置文件
+1）/etc/krb5.conf
+[root@cdh1 yum.repos.d]# vi /etc/krb5.conf
+[logging]
+ default = FILE:/var/log/krb5libs.log
+ kdc = FILE:/var/log/krb5kdc.log
+ admin_server = FILE:/var/log/kadmind.log
+
+[libdefaults]
+ default_realm = ZGP.COM
+ dns_lookup_realm = false
+ dns_lookup_kdc = false
+ ticket_lifetime = 24h
+ renew_lifetime = 7d
+ forwardable = true
+ renewable = true
+
+[realms]
+ ZGP.COM = {
+  kdc = cdh1:88
+  admin_server = cdh1:749
+ }
+
+[domain_realm]
+ .zgp.com = ZGP.COM
+ zgp.com = ZGP.COM
+
+[kdc]
+profile=/var/kerberos/krb5kdc/kdc.conf
+
+
+2） /var/kerberos/krb5kdc/kdc.conf
+[root@cdh1 krb5kdc]# vi kdc.conf
+
+[kdcdefaults]
+ kdc_ports = 88
+ kdc_tcp_ports = 88
+
+[realms]
+ ZGP.COM = {
+  #master_key_type = aes256-cts
+  acl_file = /var/kerberos/krb5kdc/kadm5.acl
+  dict_file = /usr/share/dict/words
+  admin_keytab = /var/kerberos/krb5kdc/kadm5.keytab
+  #supported_enctypes = aes256-cts:normal aes128-cts:normal des3-hmac-sha1:normal arcfour-hmac:normal des-hmac-sha1:normal des-cbc-md5:normal des-cbc-crc:normal
+  supported_enctypes = aes256-cts:normal aes128-cts:normal des3-hmac-sha1:normal arcfour-hmac:normal des-hmac-sha1:normal des-cbc-md5:normal des-cbc-crc:normal
+  max_life = 24h
+  max_renewable_life = 10d
+ }
+
+3）/var/kerberos/krb5kdc/kadm5.acl
+[root@cdh1 krb5kdc]# vi kadm5.acl
+*/admin@ZGP.COM *
+
+
+3、同步/etc/krb5.conf到其他服务器
+[root@cdh1 etc]# scp krb5.conf cdh2:/etc
+[root@cdh1 etc]# scp krb5.conf cdh3:/etc
+
+
+4、创建数据库
+[root@cdh1 etc]# kdb5_util create -r ZGP.COM –s
+[root@cdh1 html]# cat /dev/sda >> /dev/urandom  《===可以加快速度，随机数的采集
+
+
+[root@cdh1 etc]# kdb5_util create -r ZGP.COM -s
+Loading random data
+Initializing database '/var/kerberos/krb5kdc/principal' for realm 'ZGP.COM',
+master key name 'K/M@ZGP.COM'
+You will be prompted for the database Master Password.
+It is important that you NOT FORGET this password.
+Enter KDC database master key:            《====要求输入密码，我们这里是oracle
+Re-enter KDC database master key to verify:
+[root@cdh1 etc]#
+
+
+查看创建的数据库
+[root@cdh1 etc]# cd /var/kerberos/krb5kdc/
+[root@cdh1 krb5kdc]# ll
+total 24
+-rw------- 1 root root   18 Mar 30 03:52 kadm5.acl
+-rw------- 1 root root  606 Mar 30 03:43 kdc.conf
+-rw------- 1 root root 8192 Mar 30 04:22 principal
+-rw------- 1 root root 8192 Mar 30 04:22 principal.kadm5
+-rw------- 1 root root    0 Mar 30 04:22 principal.kadm5.lock
+-rw------- 1 root root    0 Mar 30 04:22 principal.ok
+[root@cdh1 krb5kdc]#
+
+
+5、启动服务
+[root@cdh1 krb5kdc]# service krb5kdc start
+Starting Kerberos 5 KDC: [  OK  ]
+[root@cdh1 krb5kdc]# service kadmin start
+Starting Kerberos 5 Admin Server: [  OK  ]
+[root@cdh1 krb5kdc]#
+[root@cdh1 krb5kdc]# chkconfig krb5kdc on
+[root@cdh1 krb5kdc]# chkconfig kadmin on
+
+
+6、创建Kerberos管理员
+[root@cdh1 krb5kdc]# kadmin.local -q "addprinc root/admin"
+Authenticating as principal root/admin@ZGP.COM with password.
+WARNING: no policy specified for root/admin@ZGP.COM; defaulting to no policy
+Enter password for principal "root/admin@ZGP.COM":
+Re-enter password for principal "root/admin@ZGP.COM":
+Principal "root/admin@ZGP.COM" created.
+[root@cdh1 krb5kdc]#
+
+
+7、测试
+[root@cdh1 krb5kdc]# kadmin
+Authenticating as principal root/admin@ZGP.COM with password.
+Password for root/admin@ZGP.COM:
+kadmin:  ?
+kadmin:  list_principals
+K/M@ZGP.COM
+kadmin/admin@ZGP.COM
+kadmin/cdh1@ZGP.COM
+kadmin/changepw@ZGP.COM
+krbtgt/ZGP.COM@ZGP.COM
+root/admin@ZGP.COM
+kadmin:  add_principal jack
+WARNING: no policy specified for jack@ZGP.COM; defaulting to no policy
+Enter password for principal "jack@ZGP.COM":
+Re-enter password for principal "jack@ZGP.COM":
+Principal "jack@ZGP.COM" created.
+kadmin:  list_principals
+K/M@ZGP.COM
+jack@ZGP.COM
+kadmin/admin@ZGP.COM
+kadmin/cdh1@ZGP.COM
+kadmin/changepw@ZGP.COM
+krbtgt/ZGP.COM@ZGP.COM
+root/admin@ZGP.COM
+kadmin:  delete_principal jack
+Are you sure you want to delete the principal "jack@ZGP.COM"? (yes/no): yes
+Principal "jack@ZGP.COM" deleted.
+Make sure that you have removed this principal from all ACLs before reusing.
+kadmin:
+[root@cdh1 krb5kdc]# kinit root
+kinit: Client not found in Kerberos database while getting initial credentials
+[root@cdh1 krb5kdc]# kinit root/admin
+Password for root/admin@ZGP.COM:
+[root@cdh1 krb5kdc]# klist -e
+Ticket cache: FILE:/tmp/krb5cc_0
+Default principal: root/admin@ZGP.COM
+
+
+Valid starting     Expires            Service principal
+03/30/17 04:41:59  03/31/17 04:41:59  krbtgt/ZGP.COM@ZGP.COM
+        renew until 04/06/17 04:41:59, Etype (skey, tkt): aes256-cts-hmac-sha1-96, aes256-cts-hmac-sha1-96
+[root@cdh1 krb5kdc]#
+[root@cdh1 krb5kdc]# kdestroy      《===毁灭票据
+[root@cdh1 krb5kdc]# klist -e
+klist: No credentials cache found (ticket cache FILE:/tmp/krb5cc_0)
+[root@cdh1 krb5kdc]#
+
+
+[root@cdh1 krb5kdc]# kinit root/admin
+Password for root/admin@ZGP.COM:
+[root@cdh1 krb5kdc]# klist
+Ticket cache: FILE:/tmp/krb5cc_0
+Default principal: root/admin@ZGP.COM
+
+Valid starting     Expires            Service principal
+03/30/17 04:46:18  03/31/17 04:46:18  krbtgt/ZGP.COM@ZGP.COM
+        renew until 04/06/17 04:46:18
+[root@cdh1 krb5kdc]# kinit –R               《===更新票据
+[root@cdh1 krb5kdc]# klist
+Ticket cache: FILE:/tmp/krb5cc_0
+Default principal: root/admin@ZGP.COM
+
+
+Valid starting     Expires            Service principal
+03/30/17 04:46:32  03/31/17 04:46:32  krbtgt/ZGP.COM@ZGP.COM
+        renew until 04/06/17 04:46:18
+[root@cdh1 krb5kdc]#
+
+[root@cdh1 krb5kdc]# kadmin.local -q "ktadd kadmin/admin"
+Authenticating as principal root/admin@ZGP.COM with password.
+Entry for principal kadmin/admin with kvno 4, encryption type aes256-cts-hmac-sha1-96 added to keytab WRFILE:/etc/krb5.keytab.
+Entry for principal kadmin/admin with kvno 4, encryption type aes128-cts-hmac-sha1-96 added to keytab WRFILE:/etc/krb5.keytab.
+Entry for principal kadmin/admin with kvno 4, encryption type des3-cbc-sha1 added to keytab WRFILE:/etc/krb5.keytab.
+Entry for principal kadmin/admin with kvno 4, encryption type arcfour-hmac added to keytab WRFILE:/etc/krb5.keytab.
+Entry for principal kadmin/admin with kvno 4, encryption type des-hmac-sha1 added to keytab WRFILE:/etc/krb5.keytab.
+Entry for principal kadmin/admin with kvno 4, encryption type des-cbc-md5 added to keytab WRFILE:/etc/krb5.keytab.
+[root@cdh1 krb5kdc]#
+
+
+[root@cdh1 krb5kdc]# klist -k /etc/krb5.keytab
+Keytab name: WRFILE:/etc/krb5.keytab
+KVNO Principal
+---- --------------------------------------------------------------------------
+   3 kadmin/admin@ZGP.COM
+   3 kadmin/admin@ZGP.COM
+   3 kadmin/admin@ZGP.COM
+   3 kadmin/admin@ZGP.COM
+   3 kadmin/admin@ZGP.COM
+   3 kadmin/admin@ZGP.COM
+   4 kadmin/admin@ZGP.COM
+   4 kadmin/admin@ZGP.COM
+   4 kadmin/admin@ZGP.COM
+   4 kadmin/admin@ZGP.COM
+   4 kadmin/admin@ZGP.COM
+   4 kadmin/admin@ZGP.COM
+[root@cdh1 krb5kdc]#
