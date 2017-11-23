@@ -1,0 +1,1536 @@
+/*写在前面
+本文涉及的工具类部分是自己编写，另一部分是在项目里收集的。工具类涉及数据库连接、格式转换、文件操作、发送邮件等等。提高开发效率，欢迎收藏与转载。
+数据库连接工具类
+数据库连接工具类——仅仅获得连接对象 ConnDB.java
+  */
+import com.opensymphony.xwork2.conversion.impl.DefaultTypeConverter;
+import java.text.DateFormat;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Map;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+
+
+
+    /**
+     * 数据库连接工具类——仅仅获得连接对象
+     *
+     */
+    public class utils {
+
+        private static Connection conn = null;
+
+        private static final String DRIVER_NAME = "com.mysql.jdbc.Driver";
+
+        private static final String URL = "jdbc:mysql://localhost:3306/axt?useUnicode=true&characterEncoding=UTF-8";
+
+        private static final String USER_NAME = "root";
+
+        private static final String PASSWORD = "root";
+
+        public static Connection getConn(){
+            try {
+                Class.forName(DRIVER_NAME);
+                conn = DriverManager.getConnection(URL, USER_NAME, PASSWORD);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+            return conn;
+        }
+
+/*
+数据库连接工具类——包含取得连接和关闭资源 ConnUtil.java
+
+*/
+
+
+
+
+    /**
+     * @className: ConnUtil.java
+     * @classDescription: 数据库连接工具类——包含取得连接和关闭资源
+     * @function:
+     * @author: Wentasy
+     * @createTime: 2012-9-24 上午11:51:15
+     * @modifyTime:
+     * @modifyReason:
+     * @since: JDK 1.6
+     */
+
+        public static final String url = "jdbc:mysql://XXX.XXX.XXX.XXX:3306/dbadapter";
+        public static final String user = "root";
+        public static final String password = "XXXXXX";
+
+        /**
+         * 得到连接
+         * @return
+         * @throws SQLException
+         * @throws ClassNotFoundException
+         */
+        public static Connection establishConn() throws SQLException,ClassNotFoundException{
+            Class.forName("com.mysql.jdbc.Driver");
+            return DriverManager.getConnection(url, user, password);
+        }
+
+        /**
+         * 关闭连接
+         * @param conn
+         * @throws SQLException
+         */
+        public static void close(Connection conn) throws SQLException{
+            if(conn != null){
+                conn.close();
+                conn = null;
+            }
+        }
+
+        /**
+         * 关闭PreparedStatement
+         * @param pstmt
+         * @throws SQLException
+         */
+        public static void close(PreparedStatement pstmt) throws SQLException{
+            if(pstmt != null){
+                pstmt.close();
+                pstmt = null;
+            }
+        }
+
+        /**
+         * 关闭结果集
+         * @param rs
+         * @throws SQLException
+         */
+        public static void close(ResultSet rs) throws SQLException{
+            if(rs != null){
+                rs.close();
+                rs = null;
+            }
+        }
+
+
+/*
+
+格式转换工具类
+
+
+日期转换工具类 CommUtil.java
+*/
+
+
+    /**
+     * 日期转换工具类
+     */
+
+
+        /**
+         * 将日期格式转换成yyyy-MM-dd的字符串格式
+         * 返回值如：2010-10-06
+         * @param time 要转换的日期
+         * @return
+         */
+        public static  String dateToString(Date time)  {
+
+            SimpleDateFormat formatter = new  SimpleDateFormat ("yyyy-MM-dd"); //定义将日期格式要换成的格式
+            String stringTime  =  formatter.format(time);
+
+            return  stringTime;
+
+          }
+        /**
+         * 将日期格式转换成yyyyMMdd的字符串格式
+         * 返回值如：2010-10-06
+         * @param time 要转换的日期
+         * @return
+         */
+        public static  String dateTimeToString(Date time)  {
+
+            SimpleDateFormat formatter = new  SimpleDateFormat ("yyyyMMdd"); //定义将日期格式要换成的格式
+            String stringTime  =  formatter.format(time);
+
+            return  stringTime;
+
+          }
+
+
+        /**
+         * 将日期格式转换成yyyy-MM-dd的字符串格式
+         * 返回值如：2010-10-06
+         * @param time 要转换的日期
+         * @return
+         */
+        public static  Date dateToDate(Date time)  {
+
+            SimpleDateFormat formatter = new  SimpleDateFormat ("yyyy-MM-dd"); //定义将日期格式要换成的格式
+            String stringTime  =  formatter.format(time);
+         Date date = null;
+        try {
+            date = formatter.parse(stringTime);
+        } catch (ParseException e) {
+            e.printStackTrace();
+        }
+            return  date;
+
+        }
+
+        /**
+         * 得到当前时间，以字符串表示
+         * @return
+         */
+        public static String getDate(){
+            Date date = new Date();
+            return CommUtil.dateToString(date);
+        }
+
+
+
+    /**
+     * 日期转换类
+     *
+     */
+    public class DateConverter extends DefaultTypeConverter {
+        private static final DateFormat[] ACCEPT_DATE_FORMATS = {
+                new SimpleDateFormat("dd/MM/yyyy"),
+                new SimpleDateFormat("yyyy-MM-dd"),
+                new SimpleDateFormat("yyyy/MM/dd") }; //支持转换的日期格式
+
+        @Override
+        public Object convertValue(Map context, Object value, Class toType) {
+            if (toType == Date.class) {  //浏览器向服务器提交时，进行String to Date的转换
+                Date date = null;
+                String dateString = null;
+                String[] params = (String[])value;
+                dateString = params[0];//获取日期的字符串
+                for (DateFormat format : ACCEPT_DATE_FORMATS) {
+                    try {
+                        return format.parse(dateString);//遍历日期支持格式，进行转换
+                    } catch(Exception e) {
+                        continue;
+                    }
+                }
+                return null;
+            }
+            else if (toType == String.class) {   //服务器向浏览器输出时，进行Date to String的类型转换
+                Date date = (Date)value;
+                return new SimpleDateFormat("yyyy-MM-dd").format(date);//输出的格式是yyyy-MM-dd
+            }
+
+            return null;
+        }
+    }
+
+功能更强大的格式化工具类 FormatUtils.java
+
+
+[java] view plain copy
+
+    package com.util;
+
+    import java.text.DecimalFormat;
+    import java.text.ParseException;
+    import java.text.SimpleDateFormat;
+    import java.util.Date;
+
+    /**
+     * 功能更强大的格式化工具类
+     */
+    public class FormatUtils {
+        private static SimpleDateFormat second = new SimpleDateFormat(
+                "yy-MM-dd hh:mm:ss");
+
+        private static SimpleDateFormat day = new SimpleDateFormat("yyyy-MM-dd");
+        private static SimpleDateFormat detailDay = new SimpleDateFormat("yyyy年MM月dd日");
+        private static SimpleDateFormat fileName = new SimpleDateFormat("yyyy-MM-dd-HH-mm-ss");
+        private static SimpleDateFormat tempTime = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+        private static SimpleDateFormat excelDate = new SimpleDateFormat("yyyy/MM/dd");
+
+        /**
+         * 格式化excel中的时间
+         * @param date
+         * @return
+         */
+        public static String formatDateForExcelDate(Date date) {
+            return excelDate.format(date);
+        }
+
+        /**
+         * 将日期格式化作为文件名
+         * @param date
+         * @return
+         */
+        public static String formatDateForFileName(Date date) {
+            return fileName.format(date);
+        }
+
+        /**
+         * 格式化日期(精确到秒)
+         *
+         * @param date
+         * @return
+         */
+        public static String formatDateSecond(Date date) {
+            return second.format(date);
+        }
+
+        /**
+         * 格式化日期(精确到秒)
+         *
+         * @param date
+         * @return
+         */
+        public static String tempDateSecond(Date date) {
+            return tempTime.format(date);
+        }
+
+        public static Date tempDateSecond(String str) {
+            try {
+                return tempTime.parse(str);
+            } catch (ParseException e) {
+                e.printStackTrace();
+            }
+            return new Date();
+        }
+        /**
+         * 格式化日期(精确到天)
+         *
+         * @param date
+         * @return
+         */
+        public static String formatDateDay(Date date) {
+            return day.format(date);
+        }
+
+        /**
+         * 格式化日期(精确到天)
+         *
+         * @param date
+         * @return
+         */
+        public static String formatDateDetailDay(Date date) {
+            return detailDay.format(date);
+        }
+
+        /**
+         * 将double类型的数字保留两位小数（四舍五入）
+         *
+         * @param number
+         * @return
+         */
+        public static String formatNumber(double number) {
+            DecimalFormat df = new DecimalFormat();
+            df.applyPattern("#0.00");
+            return df.format(number);
+        }
+
+        /**
+         * 将字符串转换成日期
+         *
+         * @param date
+         * @return
+         * @throws Exception
+         */
+        public static Date formateDate(String date) throws Exception {
+            return day.parse(date);
+        }
+
+        /**
+         * 将字符日期转换成Date
+         * @param date
+         * @return
+         * @throws Exception
+         */
+        public static Date parseStringToDate(String date) throws Exception {
+            return day.parse(date);
+        }
+
+        public static String formatDoubleNumber(double number) {
+            DecimalFormat df = new DecimalFormat("#");
+            return df.format(number);
+        }
+    }
+
+
+
+
+
+文件操作工具类
+
+
+目录操作工具类 CopyDir.java
+[java] view plain copy
+
+    package com.util;
+
+    import java.io.*;
+
+    /**
+     * 1,建立目的目录。 2，遍历源目录。 3，遍历过程中，创建文件或者文件夹。 原理：其实就是改变了源文件或者目录的目录头。
+     * @datetime  Dsc  24
+     */
+    public class CopyDir {
+        private File sDir, dDir, newDir;
+
+        public CopyDir(String s, String d) {
+            this(new File(s), new File(d));
+        }
+
+        CopyDir(File sDir, File dDir)// c:\\Test d:\\abc
+        {
+            this.sDir = sDir;
+            this.dDir = dDir;
+        }
+
+        public void copyDir() throws IOException {
+            // 是创建目的目录。也就是创建要拷贝的源文件夹。Test
+            // 获取源文件夹名称。
+            String name = sDir.getName();
+            // 通过该名称在目的目录创建该文件夹，为了存放源文件夹中的文件或者文件夹。
+            // 将目的目录和源文件夹名称，封装成File对象。
+            newDir = dDir;
+            // new File(dDir,name);
+            // 调用该对象的mkdir方法。在目的目录创建该文件夹。d:\\abc\\Test
+            newDir.mkdir();//
+
+            // 遍历源文件夹。
+            listAll(sDir);
+        }
+
+        /*
+         * 将遍历目录封装成方法。 在遍历过程中，遇到文件创建文件。 遇到目录创建目录。
+         */
+        private void listAll(File dir) throws IOException {
+            File[] files = dir.listFiles();
+            for (int x = 0; x < files.length; x++) {
+                if (files[x].isDirectory()) {
+                    createDir(files[x]);// 调用创建目录的方法。
+                    listAll(files[x]);// 在继续进行递归。进入子级目录。
+                } else {
+                    createFile(files[x]);// 调用创建文件的方法。
+                }
+            }
+        }
+
+        /*
+         * copy目录。通过源目录在目的目录创建新目录。
+         */
+        private void createDir(File dir) {
+            File d = replaceFile(dir);
+            d.mkdir();
+        }
+
+        /*
+         * copy文件。
+         */
+        private void createFile(File file) throws IOException {
+            File newFile = replaceFile(file);
+            // copy文件是一个数据数据传输的过程。需要通过流来完成。
+            FileInputStream fis = new FileInputStream(file);
+            FileOutputStream fos = new FileOutputStream(newFile);
+            byte[] buf = new byte[1024 * 2];
+            int num = 0;
+            while ((num = fis.read(buf)) != -1) {
+                fos.write(buf, 0, num);
+            }
+            fos.close();
+            fis.close();
+        }
+
+        /*
+         * 替换路径。
+         */
+        private File replaceFile(File f) {
+            // 原理是：将源目录的父目录(C:\\Tset)，替换成目的父目录。（d:\\abc\\Test）
+            String path = f.getAbsolutePath();// 获取源文件或者文件夹的决定路径。
+            // 将源文件或者文件夹的绝对路径替换成目的路径。
+            String newPath = path.replace(sDir.getAbsolutePath(), newDir
+                    .getAbsolutePath());
+            // 将新的目的路径封装成File对象
+            File newFile = new File(newPath);
+            return newFile;
+        }
+    }
+
+文件/目录部分处理工具类 DealDir.java
+[java] view plain copy
+
+    package com.util;
+
+    import java.io.File;
+    import java.util.StringTokenizer;
+
+    /**
+     * 文件/目录 部分处理
+     * @createTime Dec 25, 2010 7:06:58 AM
+     * @version 1.0
+     */
+    public class DealDir {
+        /**
+         * 获取文件的后缀名并转化成大写
+         *
+         * @param fileName
+         *            文件名
+         * @return
+         */
+        public String getFileSuffix(String fileName) throws Exception {
+            return fileName.substring(fileName.lastIndexOf(".") + 1,
+                    fileName.length()).toUpperCase();
+        }
+
+        /**
+         * 创建多级目录
+         *
+         * @param path
+         *            目录的绝对路径
+         */
+        public void createMultilevelDir(String path) {
+            try {
+                StringTokenizer st = new StringTokenizer(path, "/");
+                String path1 = st.nextToken() + "/";
+                String path2 = path1;
+                while (st.hasMoreTokens()) {
+
+                    path1 = st.nextToken() + "/";
+                    path2 += path1;
+                    File inbox = new File(path2);
+                    if (!inbox.exists())
+                        inbox.mkdir();
+
+                }
+            } catch (Exception e) {
+                System.out.println("目录创建失败" + e);
+                e.printStackTrace();
+            }
+
+        }
+
+        /**
+         * 删除文件/目录(递归删除文件/目录)
+         *
+         * @param path
+         *            文件或文件夹的绝对路径
+         */
+        public void deleteAll(String dirpath) {
+            if (dirpath == null) {
+                System.out.println("目录为空");
+            } else {
+                File path = new File(dirpath);
+                try {
+                    if (!path.exists())
+                        return;// 目录不存在退出
+                    if (path.isFile()) // 如果是文件删除
+                    {
+                        path.delete();
+                        return;
+                    }
+                    File[] files = path.listFiles();// 如果目录中有文件递归删除文件
+                    for (int i = 0; i < files.length; i++) {
+                        deleteAll(files[i].getAbsolutePath());
+                    }
+                    path.delete();
+
+                } catch (Exception e) {
+                    System.out.println("文件/目录 删除失败" + e);
+                    e.printStackTrace();
+                }
+            }
+        }
+
+        /**
+         * 文件/目录 重命名
+         *
+         * @param oldPath
+         *            原有路径（绝对路径）
+         * @param newPath
+         *            更新路径
+         * @author lyf 注：不能修改上层次的目录
+         */
+        public void renameDir(String oldPath, String newPath) {
+            File oldFile = new File(oldPath);// 文件或目录
+            File newFile = new File(newPath);// 文件或目录
+            try {
+                boolean success = oldFile.renameTo(newFile);// 重命名
+                if (!success) {
+                    System.out.println("重命名失败");
+                } else {
+                    System.out.println("重命名成功");
+                }
+            } catch (RuntimeException e) {
+                e.printStackTrace();
+            }
+
+        }
+
+    }
+
+
+目录处理工具类 DealWithDir.java
+[java] view plain copy
+
+    package com.util;
+
+    import java.io.File;
+
+    /**
+     * 目录处理工具类
+     *
+     */
+    public class DealWithDir {
+        /**
+         * 新建目录
+         */
+        public static boolean newDir(String path) throws Exception {
+            File file = new File(path);
+            return file.mkdirs();//创建目录
+        }
+
+        /**
+         * 删除目录
+         */
+        public static boolean deleteDir(String path) throws Exception {
+            File file = new File(path);
+            if (!file.exists())
+                return false;// 目录不存在退出
+            if (file.isFile()) // 如果是文件删除
+            {
+                file.delete();
+                return false;
+            }
+            File[] files = file.listFiles();// 如果目录中有文件递归删除文件
+            for (int i = 0; i < files.length; i++) {
+                deleteDir(files[i].getAbsolutePath());
+            }
+            file.delete();
+
+            return file.delete();//删除目录
+        }
+
+        /**
+         * 更新目录
+         */
+        public static boolean updateDir(String path, String newPath) throws Exception {
+            File file = new File(path);
+            File newFile = new File(newPath);
+            return file.renameTo(newFile);
+        }
+
+        public static void main(String d[]) throws Exception{
+            //deleteDir("d:/ff/dddf");
+            updateDir("D:\\TOOLS\\Tomcat 6.0\\webapps\\BCCCSM\\nationalExperiment/22222", "D:\\TOOLS\\Tomcat 6.0\\webapps\\BCCCSM\\nationalExperiment/224222");
+        }
+
+
+    }
+
+
+删除文件夹工具类 DeleteFolder.java
+
+
+[java] view plain copy
+
+    package com.util;
+
+    import java.io.File;
+
+    /**
+     * 删除文件夹
+     * @createTime DSC 20, 2010 15:38
+     * @version 2.0
+     */
+    public class DeleteFolder {
+        // 删除文件夹
+        // param folderPath 文件夹完整绝对路径
+        public static void delFolder(String folderPath) {
+            try {
+                delAllFile(folderPath); // 删除完里面所有内容
+                String filePath = folderPath;
+                filePath = filePath.toString();
+                java.io.File myFilePath = new java.io.File(filePath);
+                myFilePath.delete(); // 删除空文件夹
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
+
+        // 删除指定文件夹下所有文件
+        // param path 文件夹完整绝对路径
+        public static boolean delAllFile(String path) {
+            boolean flag = false;
+            File file = new File(path);
+            if (!file.exists()) {
+                return flag;
+            }
+            if (!file.isDirectory()) {
+                return flag;
+            }
+            String[] tempList = file.list();
+            File temp = null;
+            for (int i = 0; i < tempList.length; i++) {
+                if (path.endsWith(File.separator)) {
+                    temp = new File(path + tempList[i]);
+                } else {
+                    temp = new File(path + File.separator + tempList[i]);
+                }
+                if (temp.isFile()) {
+                    temp.delete();
+                }
+                if (temp.isDirectory()) {
+                    delAllFile(path + "/" + tempList[i]);// 先删除文件夹里面的文件
+                    delFolder(path + "/" + tempList[i]);// 再删除空文件夹
+                    flag = true;
+                }
+            }
+            return flag;
+        }
+
+    }
+
+
+
+文件上传工具类 UploadUtil.java
+[java] view plain copy
+
+    package com.util;
+
+    import java.io.BufferedInputStream;
+    import java.io.BufferedOutputStream;
+    import java.io.File;
+    import java.io.FileInputStream;
+    import java.io.FileOutputStream;
+    import java.io.InputStream;
+    import java.io.OutputStream;
+    import java.util.Calendar;
+
+    /**
+     * 文件上传工具类
+     *
+     */
+    public class UploadUtil {
+        private static final int BUFFER_SIZE = 16 * 1024;
+        //保存图片
+        public static synchronized void copy(File src, File newFile) {
+
+            try {
+                InputStream is = null;
+                OutputStream os = null;
+                try {
+                    is = new BufferedInputStream(new FileInputStream(src),
+                            BUFFER_SIZE);
+                    os = new BufferedOutputStream(new FileOutputStream(newFile),
+                            BUFFER_SIZE);
+                    byte[] buffer = new byte[BUFFER_SIZE];
+                    while (is.read(buffer) > 0) {
+                        os.write(buffer);
+                    }
+                } finally {
+                    if (null != is) {
+                        is.close();
+                    }
+                    if (null != os) {
+                        os.close();
+                    }
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
+
+        /**
+         * 返回 年号+月号+天+时+分+秒+随机码
+         * @return
+         */
+        @SuppressWarnings("static-access")
+        public static synchronized String getTime() {
+            Calendar calendar = Calendar.getInstance();
+            String year = calendar.get(calendar.YEAR) + "";
+            String month = (calendar.get(calendar.MONTH) + 1) + "";
+            String day = calendar.get(calendar.DAY_OF_MONTH) + "";
+            String hour = calendar.get(calendar.HOUR_OF_DAY) + "";
+            String minute = calendar.get(calendar.MINUTE) + "";
+            String second = calendar.get(calendar.SECOND) + "";
+            String milliSecond = calendar.get(calendar.MILLISECOND) + "";
+            int r = (int)(Math.random()*100000);
+            String random = String.valueOf(r);
+            return year + month + day + hour + minute + second + milliSecond + random+"a";
+        }
+
+    }
+
+
+
+其他工具类
+MD5编码工具类 MD5Code.java
+[java] view plain copy
+
+    package com.util;
+    /**
+     * MD5编码工具类
+     *
+     */
+    public class MD5Code {
+        static final int S11 = 7;
+
+        static final int S12 = 12;
+
+        static final int S13 = 17;
+
+        static final int S14 = 22;
+
+        static final int S21 = 5;
+
+        static final int S22 = 9;
+
+        static final int S23 = 14;
+
+        static final int S24 = 20;
+
+        static final int S31 = 4;
+
+        static final int S32 = 11;
+
+        static final int S33 = 16;
+
+        static final int S34 = 23;
+
+        static final int S41 = 6;
+
+        static final int S42 = 10;
+
+        static final int S43 = 15;
+
+        static final int S44 = 21;
+
+        static final byte[] PADDING = { -128, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0 };
+
+        private long[] state = new long[4];// state (ABCD)
+
+        private long[] count = new long[2];// number of bits, modulo 2^64 (lsb
+
+        // first)
+
+        private byte[] buffer = new byte[64]; // input buffer
+
+
+        public String digestHexStr;
+
+        private byte[] digest = new byte[16];
+
+        public String getMD5ofStr(String inbuf) {
+            md5Init();
+            md5Update(inbuf.getBytes(), inbuf.length());
+            md5Final();
+            digestHexStr = "";
+            for (int i = 0; i < 16; i++) {
+                digestHexStr += byteHEX(digest[i]);
+            }
+            return digestHexStr;
+        }
+
+        public MD5Code() {
+            md5Init();
+            return;
+        }
+
+        private void md5Init() {
+            count[0] = 0L;
+            count[1] = 0L;
+            // /* Load magic initialization constants.
+            state[0] = 0x67452301L;
+            state[1] = 0xefcdab89L;
+            state[2] = 0x98badcfeL;
+            state[3] = 0x10325476L;
+            return;
+        }
+
+        private long F(long x, long y, long z) {
+            return (x & y) | ((~x) & z);
+        }
+
+        private long G(long x, long y, long z) {
+            return (x & z) | (y & (~z));
+        }
+
+        private long H(long x, long y, long z) {
+            return x ^ y ^ z;
+        }
+
+        private long I(long x, long y, long z) {
+            return y ^ (x | (~z));
+        }
+
+        private long FF(long a, long b, long c, long d, long x, long s, long ac) {
+            a += F(b, c, d) + x + ac;
+            a = ((int) a << s) | ((int) a >>> (32 - s));
+            a += b;
+            return a;
+        }
+
+        private long GG(long a, long b, long c, long d, long x, long s, long ac) {
+            a += G(b, c, d) + x + ac;
+            a = ((int) a << s) | ((int) a >>> (32 - s));
+            a += b;
+            return a;
+        }
+
+        private long HH(long a, long b, long c, long d, long x, long s, long ac) {
+            a += H(b, c, d) + x + ac;
+            a = ((int) a << s) | ((int) a >>> (32 - s));
+            a += b;
+            return a;
+        }
+
+        private long II(long a, long b, long c, long d, long x, long s, long ac) {
+            a += I(b, c, d) + x + ac;
+            a = ((int) a << s) | ((int) a >>> (32 - s));
+            a += b;
+            return a;
+        }
+
+        private void md5Update(byte[] inbuf, int inputLen) {
+            int i, index, partLen;
+            byte[] block = new byte[64];
+            index = (int) (count[0] >>> 3) & 0x3F;
+            // /* Update number of bits */
+            if ((count[0] += (inputLen << 3)) < (inputLen << 3))
+                count[1]++;
+            count[1] += (inputLen >>> 29);
+            partLen = 64 - index;
+            // Transform as many times as possible.
+            if (inputLen >= partLen) {
+                md5Memcpy(buffer, inbuf, index, 0, partLen);
+                md5Transform(buffer);
+                for (i = partLen; i + 63 < inputLen; i += 64) {
+                    md5Memcpy(block, inbuf, 0, i, 64);
+                    md5Transform(block);
+                }
+                index = 0;
+            } else
+                i = 0;
+            // /* Buffer remaining input */
+            md5Memcpy(buffer, inbuf, index, i, inputLen - i);
+        }
+
+        private void md5Final() {
+            byte[] bits = new byte[8];
+            int index, padLen;
+            // /* Save number of bits */
+            Encode(bits, count, 8);
+            // /* Pad out to 56 mod 64.
+            index = (int) (count[0] >>> 3) & 0x3f;
+            padLen = (index < 56) ? (56 - index) : (120 - index);
+            md5Update(PADDING, padLen);
+            // /* Append length (before padding) */
+            md5Update(bits, 8);
+            // /* Store state in digest */
+            Encode(digest, state, 16);
+        }
+
+        private void md5Memcpy(byte[] output, byte[] input, int outpos, int inpos,
+                int len) {
+            int i;
+            for (i = 0; i < len; i++)
+                output[outpos + i] = input[inpos + i];
+        }
+
+        private void md5Transform(byte block[]) {
+            long a = state[0], b = state[1], c = state[2], d = state[3];
+            long[] x = new long[16];
+            Decode(x, block, 64);
+            /* Round 1 */
+            a = FF(a, b, c, d, x[0], S11, 0xd76aa478L); /* 1 */
+            d = FF(d, a, b, c, x[1], S12, 0xe8c7b756L); /* 2 */
+            c = FF(c, d, a, b, x[2], S13, 0x242070dbL); /* 3 */
+            b = FF(b, c, d, a, x[3], S14, 0xc1bdceeeL); /* 4 */
+            a = FF(a, b, c, d, x[4], S11, 0xf57c0fafL); /* 5 */
+            d = FF(d, a, b, c, x[5], S12, 0x4787c62aL); /* 6 */
+            c = FF(c, d, a, b, x[6], S13, 0xa8304613L); /* 7 */
+            b = FF(b, c, d, a, x[7], S14, 0xfd469501L); /* 8 */
+            a = FF(a, b, c, d, x[8], S11, 0x698098d8L); /* 9 */
+            d = FF(d, a, b, c, x[9], S12, 0x8b44f7afL); /* 10 */
+            c = FF(c, d, a, b, x[10], S13, 0xffff5bb1L); /* 11 */
+            b = FF(b, c, d, a, x[11], S14, 0x895cd7beL); /* 12 */
+            a = FF(a, b, c, d, x[12], S11, 0x6b901122L); /* 13 */
+            d = FF(d, a, b, c, x[13], S12, 0xfd987193L); /* 14 */
+            c = FF(c, d, a, b, x[14], S13, 0xa679438eL); /* 15 */
+            b = FF(b, c, d, a, x[15], S14, 0x49b40821L); /* 16 */
+            /* Round 2 */
+            a = GG(a, b, c, d, x[1], S21, 0xf61e2562L); /* 17 */
+            d = GG(d, a, b, c, x[6], S22, 0xc040b340L); /* 18 */
+            c = GG(c, d, a, b, x[11], S23, 0x265e5a51L); /* 19 */
+            b = GG(b, c, d, a, x[0], S24, 0xe9b6c7aaL); /* 20 */
+            a = GG(a, b, c, d, x[5], S21, 0xd62f105dL); /* 21 */
+            d = GG(d, a, b, c, x[10], S22, 0x2441453L); /* 22 */
+            c = GG(c, d, a, b, x[15], S23, 0xd8a1e681L); /* 23 */
+            b = GG(b, c, d, a, x[4], S24, 0xe7d3fbc8L); /* 24 */
+            a = GG(a, b, c, d, x[9], S21, 0x21e1cde6L); /* 25 */
+            d = GG(d, a, b, c, x[14], S22, 0xc33707d6L); /* 26 */
+            c = GG(c, d, a, b, x[3], S23, 0xf4d50d87L); /* 27 */
+            b = GG(b, c, d, a, x[8], S24, 0x455a14edL); /* 28 */
+            a = GG(a, b, c, d, x[13], S21, 0xa9e3e905L); /* 29 */
+            d = GG(d, a, b, c, x[2], S22, 0xfcefa3f8L); /* 30 */
+            c = GG(c, d, a, b, x[7], S23, 0x676f02d9L); /* 31 */
+            b = GG(b, c, d, a, x[12], S24, 0x8d2a4c8aL); /* 32 */
+            /* Round 3 */
+            a = HH(a, b, c, d, x[5], S31, 0xfffa3942L); /* 33 */
+            d = HH(d, a, b, c, x[8], S32, 0x8771f681L); /* 34 */
+            c = HH(c, d, a, b, x[11], S33, 0x6d9d6122L); /* 35 */
+            b = HH(b, c, d, a, x[14], S34, 0xfde5380cL); /* 36 */
+            a = HH(a, b, c, d, x[1], S31, 0xa4beea44L); /* 37 */
+            d = HH(d, a, b, c, x[4], S32, 0x4bdecfa9L); /* 38 */
+            c = HH(c, d, a, b, x[7], S33, 0xf6bb4b60L); /* 39 */
+            b = HH(b, c, d, a, x[10], S34, 0xbebfbc70L); /* 40 */
+            a = HH(a, b, c, d, x[13], S31, 0x289b7ec6L); /* 41 */
+            d = HH(d, a, b, c, x[0], S32, 0xeaa127faL); /* 42 */
+            c = HH(c, d, a, b, x[3], S33, 0xd4ef3085L); /* 43 */
+            b = HH(b, c, d, a, x[6], S34, 0x4881d05L); /* 44 */
+            a = HH(a, b, c, d, x[9], S31, 0xd9d4d039L); /* 45 */
+            d = HH(d, a, b, c, x[12], S32, 0xe6db99e5L); /* 46 */
+            c = HH(c, d, a, b, x[15], S33, 0x1fa27cf8L); /* 47 */
+            b = HH(b, c, d, a, x[2], S34, 0xc4ac5665L); /* 48 */
+            /* Round 4 */
+            a = II(a, b, c, d, x[0], S41, 0xf4292244L); /* 49 */
+            d = II(d, a, b, c, x[7], S42, 0x432aff97L); /* 50 */
+            c = II(c, d, a, b, x[14], S43, 0xab9423a7L); /* 51 */
+            b = II(b, c, d, a, x[5], S44, 0xfc93a039L); /* 52 */
+            a = II(a, b, c, d, x[12], S41, 0x655b59c3L); /* 53 */
+            d = II(d, a, b, c, x[3], S42, 0x8f0ccc92L); /* 54 */
+            c = II(c, d, a, b, x[10], S43, 0xffeff47dL); /* 55 */
+            b = II(b, c, d, a, x[1], S44, 0x85845dd1L); /* 56 */
+            a = II(a, b, c, d, x[8], S41, 0x6fa87e4fL); /* 57 */
+            d = II(d, a, b, c, x[15], S42, 0xfe2ce6e0L); /* 58 */
+            c = II(c, d, a, b, x[6], S43, 0xa3014314L); /* 59 */
+            b = II(b, c, d, a, x[13], S44, 0x4e0811a1L); /* 60 */
+            a = II(a, b, c, d, x[4], S41, 0xf7537e82L); /* 61 */
+            d = II(d, a, b, c, x[11], S42, 0xbd3af235L); /* 62 */
+            c = II(c, d, a, b, x[2], S43, 0x2ad7d2bbL); /* 63 */
+            b = II(b, c, d, a, x[9], S44, 0xeb86d391L); /* 64 */
+            state[0] += a;
+            state[1] += b;
+            state[2] += c;
+            state[3] += d;
+        }
+
+        private void Encode(byte[] output, long[] input, int len) {
+            int i, j;
+            for (i = 0, j = 0; j < len; i++, j += 4) {
+                output[j] = (byte) (input[i] & 0xffL);
+                output[j + 1] = (byte) ((input[i] >>> 8) & 0xffL);
+                output[j + 2] = (byte) ((input[i] >>> 16) & 0xffL);
+                output[j + 3] = (byte) ((input[i] >>> 24) & 0xffL);
+            }
+        }
+
+        private void Decode(long[] output, byte[] input, int len) {
+            int i, j;
+            for (i = 0, j = 0; j < len; i++, j += 4)
+                output[i] = b2iu(input[j]) | (b2iu(input[j + 1]) << 8)
+                        | (b2iu(input[j + 2]) << 16) | (b2iu(input[j + 3]) << 24);
+            return;
+        }
+
+        public static long b2iu(byte b) {
+            return b < 0 ? b & 0x7F + 128 : b;
+        }
+
+        public static String byteHEX(byte ib) {
+            char[] Digit = { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A',
+                    'B', 'C', 'D', 'E', 'F' };
+            char[] ob = new char[2];
+            ob[0] = Digit[(ib >>> 4) & 0X0F];
+            ob[1] = Digit[ib & 0X0F];
+            String s = new String(ob);
+            return s;
+        }
+    }
+
+
+
+读取Config文件工具类 PropertiesConfig.java
+[java] view plain copy
+
+    package com.util;
+
+    import java.io.BufferedInputStream;
+    import java.io.FileInputStream;
+    import java.io.InputStream;
+    import java.util.Properties;
+    /**
+     * 读取Config文件工具类
+     * @version 1.0
+     * @since JDK 1.6
+     */
+    public class PropertiesConfig {
+
+        /**
+         * 获取整个配置文件中的属性
+         * @param filePath 文件路径，即文件所在包的路径，例如：java/util/config.properties
+         */
+        public static Properties readData(String filePath) {
+            filePath = getRealPath(filePath);
+            Properties props = new Properties();
+            try {
+                InputStream in = new BufferedInputStream(new FileInputStream(filePath));
+                props.load(in);
+                in.close();
+                return props;
+            } catch (Exception e) {
+                e.printStackTrace();
+                return null;
+            }
+        }
+
+        private static String getRealPath(String filePath) {
+            //获取绝对路径 并截掉路径的”file:/“前缀
+            return PropertiesConfig.class.getResource("/" + filePath).toString().substring(6);
+        }
+    }
+
+
+自动扫描FTP文件工具类 ScanFtp.java
+[java] view plain copy
+
+    package com.util;
+
+    import java.io.BufferedInputStream;
+    import java.io.BufferedOutputStream;
+    import java.io.File;
+    import java.io.FileInputStream;
+    import java.io.FileOutputStream;
+    import java.io.IOException;
+
+    /**
+     * 自动扫描FTP文件工具类
+     * 需要定时执行
+     */
+    public class ScanFtp {
+        //服务器图片路径文件夹
+        private String serverLocal = "D:/TOOLS/Tomcat 6.0/webapps/BCCCSM/modelforcast/";
+        //图片上传文件夹存放路径,文件夹内应包含AGCM CSM ZS 3个子文件夹分别存放需要扫描到tomcat中的图片
+        private String saveLocal = "D:/modelForcast/";
+        /**
+         * 获得远程权限
+         * @return
+         */
+        private void getFTPAdress(){
+            //登陆成功
+        }
+
+        /**
+         * 开始扫描
+         * @throws IOException
+         */
+        private void scan() throws IOException {
+            this.getFTPAdress();
+            File file = new File(saveLocal + "AGCM");  //打开AGCM
+            File[] array = file.listFiles();
+            String fileName;
+            File fileTemp;
+            for(int i = 0; i < array.length; i++){
+                if(array[i].isFile()) {
+                    fileTemp = array[i];
+                    fileName = fileTemp.getName();//取出文件名
+                    if (!fileName.equals("humbs.db")) {
+                        this.saveFile(fileTemp, 1);//分析每一个文件名字并存储
+                        System.out.println(fileName + " saved");
+                    }
+                }
+            }
+
+            file = new File(saveLocal + "CSM");  //打开CSM
+            array = file.listFiles();
+            for(int i = 0; i < array.length; i++){
+                if(array[i].isFile()) {
+                    fileTemp = array[i];
+                    fileName = fileTemp.getName();//取出文件名
+                    if (!fileName.equals("humbs.db")) {
+                        this.saveFile(fileTemp, 2);//分析每一个文件名字并存储
+                        System.out.println(fileName + " saved");
+                    }
+                }
+            }
+
+            file = new File(saveLocal + "ZS");  //打开ZS
+            array = file.listFiles();
+            for(int i = 0; i < array.length; i++){
+                if(array[i].isFile()) {
+                    fileTemp = array[i];
+                    fileName = fileTemp.getName();//取出文件名
+                    if (!fileName.equals("humbs.db")) {
+                        this.saveFile(fileTemp, 3);//分析每一个文件名字并存储
+                        System.out.println(fileName + " saved");
+                    }
+                }
+            }
+
+
+        }
+
+        /**
+         * 开始执行
+         * @throws IOException
+         */
+        public void execute() throws IOException{
+            scan();//开始扫描
+        }
+
+        /**
+         * 按类型存储
+         * @param file
+         * @param type
+         * @throws IOException
+         */
+        private void saveFile(File file, int type) throws IOException {
+            String fileName = file.getName();
+            //类型A C 和 指数3种
+            String year = fileName.substring(1, 5);//获得发布年份
+            String date = fileName.substring(5, 9);//获得发布日期包含月日
+            String var = null;//获得变量名字
+            String dir = serverLocal;//存储目录名字
+            if (type == 1 ) {
+                var = fileName.substring(11, 15);
+                dir = dir + "AGCM/" + var + "/" + year + "/" + date;
+            } else if(type == 2) {
+                var = fileName.substring(11, 15);
+                dir = dir + "CSM/" + var + "/" + year + "/" + date;
+            } else {
+                var = fileName.substring(11, 15);//指数的暂时没处理
+                dir = dir + "ZS/" + var + "/" + year + "/" + date;
+            }
+            //判断是否存在这样的目录没有就自动创建
+            File savePath = new File(dir);
+            if(!savePath.exists()) {
+                savePath.mkdirs();
+            }
+            File saveFile = new File(dir + "/" + fileName);
+            if(!saveFile.exists()){//如果不存在,就存文件
+                FileInputStream fis = null;//这里用本地复制暂时代替FTP
+                FileOutputStream fos =null;
+                BufferedInputStream bis =null;
+                BufferedOutputStream bos =null;
+                int c;
+                fis = new FileInputStream(file);
+                bis = new BufferedInputStream(fis);
+                fos = new FileOutputStream(dir + "/" + fileName);
+                bos = new BufferedOutputStream(fos);
+                while((c = bis.read())!= -1)
+                    bos.write(c);
+                bos.flush();
+                if(bos != null) bos.close();
+                if(bis != null) bis.close();
+                if(fos != null) fos.close();
+                if(fis != null) fos.close();
+            } else {
+                System.out.println("文件已经存在,不进行存储,可清理当前文件.");
+            }
+        }
+
+
+        /**
+         * 测试方法
+         * @param argv
+         * @throws IOException
+         */
+        public static void main(String argv[])  {
+            ScanFtp s = new ScanFtp();
+            try {
+                s.scan();
+            } catch (IOException e) {
+                // TODO Auto-generated catch block
+                e.printStackTrace();
+            }
+        }
+    }
+
+
+邮件发送工具类 SendMail.java
+[java] view plain copy
+
+    package com.util;
+
+    import org.apache.commons.mail.EmailException;
+    import org.apache.commons.mail.SimpleEmail;
+
+    /**
+     * 邮件发送工具类
+     */
+    public class SendMail {
+        private String hostName;//设置smtp服务器
+        private String sendMailAddress;//设置发送地址
+        private String mailPassword;//设置密码
+        private boolean TLS = false;//设置是否需要TLS登录
+        private String[] getMailAddress;//设置接收地址s
+        private String mailTitle;//设置标题
+        private String mailContent;//设置邮件内容
+
+        public  void  send(){
+            SimpleEmail email = new SimpleEmail();
+            email.setTLS(TLS); //是否TLS校验，，某些邮箱需要TLS安全校验，同理有SSL校验
+            email.setHostName(hostName);
+            try {
+                email.setFrom(sendMailAddress, sendMailAddress);
+                email.setAuthentication(sendMailAddress, mailPassword);
+                email.setCharset("utf-8");//解决中文乱码问题
+                email.setSubject(mailTitle); //标题
+                email.setMsg(mailContent);//内容
+                for(int i = 0; i < getMailAddress.length; ++i){
+                    email.addTo(getMailAddress[i]); //接收方
+                    email.send();
+                }
+
+
+            } catch (EmailException e) {
+            //  e.printStackTrace();
+            }
+        }
+
+        public String getHostName() {
+            return hostName;
+        }
+
+        public void setHostName(String hostName) {
+            this.hostName = hostName;
+        }
+
+        public String getSendMailAddress() {
+            return sendMailAddress;
+        }
+
+        public void setSendMailAddress(String sendMailAddress) {
+            this.sendMailAddress = sendMailAddress;
+        }
+
+        public String getMailPassword() {
+            return mailPassword;
+        }
+
+        public void setMailPassword(String mailPassword) {
+            this.mailPassword = mailPassword;
+        }
+
+        public boolean isTLS() {
+            return TLS;
+        }
+
+        public void setTLS(boolean tls) {
+            TLS = tls;
+        }
+
+        public String[] getGetMailAddress() {
+            return getMailAddress;
+        }
+
+        public void setGetMailAddress(String[] getMailAddress) {
+            this.getMailAddress = getMailAddress;
+        }
+
+        public String getMailTitle() {
+            return mailTitle;
+        }
+
+        public void setMailTitle(String mailTitle) {
+            this.mailTitle = mailTitle;
+        }
+
+        public String getMailContent() {
+            return mailContent;
+        }
+
+        public void setMailContent(String mailContent) {
+            this.mailContent = mailContent;
+        }
+    }
+
+
+分页工具类 SharePager.java
+[java] view plain copy
+
+    package com.util;
+
+
+    /**
+     * 分页工具类
+     *
+     */
+    public class SharePager {
+        private int totalRows; //总行数
+        private int pageSize = 20; //每页显示的行数
+        private int currentPage; //当前页号
+        private int totalPages; //总页数
+        private int startRow; //当前页在数据库中的起始行
+
+
+        /**
+         * 默认构造函数
+         */
+        public SharePager()
+        {
+
+        }
+
+        /**默认每页10行
+         * @param totalRows
+         */
+        public SharePager(int totalRows)
+        {
+            this.totalRows = totalRows;
+
+            totalPages =(int) Math.ceil((double)totalRows / (double)pageSize);
+            startRow = 0;
+        }
+
+
+        /**可自定义每页显示多少页
+         * @param totalRows
+         * @param pageSize
+         */
+        public SharePager(int totalRows, int pageSize)
+        {
+            this.totalRows = totalRows;
+            this.pageSize = pageSize;
+            if(this.pageSize<1)
+                this.pageSize=1;
+            else if(pageSize>20)
+                this.pageSize=20;
+
+    //        if(this.pageSize>totalRows){
+    //          this.pageSize=(int)totalRows;
+    //        }
+
+
+
+            totalPages =(int) Math.ceil((double)totalRows / (double)this.pageSize);
+            currentPage = 1;
+            startRow = 0;
+        }
+
+        /**
+         * 跳转到首页
+         */
+        public void first()
+        {
+            this.currentPage = 1;
+            this.startRow = 0;
+        }
+
+        /**
+         * 跳转到上一页
+         */
+        public void previous()
+        {
+            if (currentPage == 1)
+            {
+                return;
+            }
+            currentPage--;
+            startRow = (currentPage-1) * pageSize;
+       }
+
+        /**
+         * 跳转到下一页
+         */
+        public void next()
+        {
+            if (currentPage < totalPages)
+            {
+                currentPage++;
+            }
+            startRow = (currentPage-1) * pageSize;
+        }
+
+        /**
+         *  跳转到尾页
+         */
+        public void last()
+        {
+            this.currentPage = totalPages;
+            if(currentPage<1){
+                currentPage = 1;
+            }
+            this.startRow = (currentPage-1) * this.pageSize;
+            totalPages =(int) Math.ceil((double)totalRows / (double)this.pageSize);
+
+        }
+
+        /**
+         * 跳转到指定页
+         * @param currentPage   指定的页
+         */
+        public void refresh(int currentPage)
+        {
+
+            if(currentPage < 0)
+            {
+                first();
+            }
+            if (currentPage > totalPages)
+            {
+                last();
+            }else{
+                this.currentPage = currentPage;
+                this.startRow = (currentPage-1) * this.pageSize;
+              }
+
+        }
+
+
+        public int getStartRow()
+        {
+            return startRow;
+        }
+
+        public int getTotalPages()
+        {
+            return totalPages;
+        }
+
+        public int getCurrentPage()
+        {
+            return currentPage;
+        }
+
+        public int getPageSize()
+        {
+            return pageSize;
+        }
+
+        public void setTotalRows(int totalRows)
+        {
+            this.totalRows = totalRows;
+        }
+
+        public void setStartRow(int startRow)
+        {
+            this.startRow = startRow;
+        }
+
+        public void setTotalPages(int totalPages)
+        {
+            this.totalPages = totalPages;
+        }
+
+        public void setCurrentPage(int currentPage)
+        {
+            this.currentPage = currentPage;
+        }
+
+        public void setPageSize(int pageSize)
+        {
+            this.pageSize = pageSize;
+        }
+
+        public int getTotalRows()
+        {
+            return totalRows;
+        }
+    }
