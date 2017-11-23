@@ -1,6 +1,7 @@
 Kerberos集群规划
-
-
+cdh1  kdc
+cdh2
+cdh3
 Kerberos安装配置
 
 一、安装KDC server
