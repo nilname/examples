@@ -7,6 +7,11 @@ public class Confs {
     private String ip;
     private int port;
 
+    @Override
+    public String toString() {
+        return ip+port;
+    }
+
     public Confs() {
         this.ip = "locahost";
         this.port = 1234;
