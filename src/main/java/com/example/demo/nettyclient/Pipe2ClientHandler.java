@@ -25,15 +25,15 @@ public class Pipe2ClientHandler extends ChannelHandlerAdapter {
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
         try {
-            String message = (String) msg;
+            int message = (int) msg;
 
-            if (!message.contains("pipe2")) {
-                ctx.fireChannelRead(msg);
-                return;
-            }
+//            if (!message.contains("pipe2")) {
+//                ctx.fireChannelRead(msg);
+//                return;
+//            }
 
             System.out.println("Pipe2ClientHandler: " + message);
-            ctx.writeAndFlush(Unpooled.copiedBuffer("pipe3_server $_".getBytes()));
+            ctx.writeAndFlush(message);
 
         } catch (Exception e) {
             e.printStackTrace();

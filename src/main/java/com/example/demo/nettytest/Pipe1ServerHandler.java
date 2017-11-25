@@ -18,6 +18,7 @@ public class Pipe1ServerHandler extends ChannelHandlerAdapter {
                 ctx.fireChannelRead(msg);
                 return;
             }
+            System.out.println(ctx.channel().remoteAddress().toString());
 
             System.out.println("Pipe1ServerHandler: " + message);
             ctx.writeAndFlush(Unpooled.copiedBuffer("pipe1_server $_".getBytes()));

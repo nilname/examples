@@ -12,13 +12,14 @@ public class Pipe2ServerHandler extends ChannelHandlerAdapter {
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
         try {
-            String message = (String) msg;
 
-            if (!message.contains("pipe2")) {
-                System.out.println("fireChannelRead:" + message);
-                ctx.fireChannelRead(msg);
-                return;
-            }
+            String  message = (String) msg;
+//
+//            if (!message.contains("pipe2")) {
+//                System.out.println("fireChannelRead:" + message);
+//                ctx.fireChannelRead(msg);
+//                return;
+//            }
 
             System.out.println("Pipe2ServerHandler: " + message);
             ctx.writeAndFlush(Unpooled.copiedBuffer("pipe2_server $_".getBytes()));
