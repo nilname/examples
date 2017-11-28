@@ -28,7 +28,7 @@ public class TimeServerHandler extends ChannelHandlerAdapter {
         }
         //发送
         ByteBuf ins=ctx.alloc().buffer();
-        ins.writeBytes("这是服务端".getBytes(Charset.forName("UTF-8")));
+        ins.writeBytes("这是服务端\n".getBytes(Charset.forName("UTF-8")));
         ctx.writeAndFlush(ins); // (1)
 //        ctx.flush(); // (2)
     }
@@ -36,7 +36,7 @@ public class TimeServerHandler extends ChannelHandlerAdapter {
     @Override
     public void channelActive(final ChannelHandlerContext ctx) { // (1)
         final ByteBuf buff = ctx.alloc().buffer(64); // (2)
-        buff.writeBytes("欢迎光临".getBytes(Charset.forName("UTF-8")));
+        buff.writeBytes("欢迎光临\n".getBytes(Charset.forName("UTF-8")));
         ctx.writeAndFlush(buff);
     }
 

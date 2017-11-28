@@ -66,14 +66,19 @@ class TimeClientHandler extends ChannelHandlerAdapter {
         try {
             //虽然这里可以给服务端发消息但是我想在其他地方需要发消息的时候再发而不是收到服务端发来消息才发
             ByteBuf buf = (ByteBuf)msg;
-            System.out.println(buf.toString(Charset.forName("UTF-8")));
+            System.out.print(buf.toString(Charset.forName("UTF-8")));
         } finally {
 
         }
-        if(index<10) {
+        if(index<100) {
             final ByteBuf buff = ctx.alloc().buffer(); // (2)
             buff.writeBytes("客户端\n".getBytes(Charset.forName("UTF-8")));
             ctx.writeAndFlush(buff);
+            try {
+                Thread.sleep(1000);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
             index++;
         }
         else {
