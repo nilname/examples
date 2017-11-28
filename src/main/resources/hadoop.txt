@@ -1718,6 +1718,8 @@ datanode
 resourcemanager
 namenode
 zkfc
+
+
 hadoop02
 zookeeper
 journalnode
@@ -1726,6 +1728,8 @@ datanode
 resourcemanager
 namenode
 zkfc
+
+
 hadoop03
 zookeeper
 journalnode
