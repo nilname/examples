@@ -13,10 +13,6 @@ import io.netty.channel.socket.nio.NioSocketChannel;
 
 import java.nio.charset.Charset;
 
-/**
- * 服务器每隔两秒发送一次服务器的时间
- * 客户端接收服务器端数据，打印出服务器的时间
- */
 public class TimeClient {
     public static void main(String[] args) throws Exception {
         String host = "127.0.0.1";
@@ -49,28 +45,18 @@ public class TimeClient {
 
 
 class TimeClientHandler extends ChannelHandlerAdapter {
-//    @Override
-//    public void channelActive(ChannelHandlerContext ctx) throws Exception {
-//        while (true) {
-//            final ByteBuf buff = ctx.alloc().buffer(); // (2)
-////            buff.clear();
-//            buff.writeBytes("客户端\n".getBytes(Charset.forName("UTF-8")));
-//            ctx.writeAndFlush(buff);
-//Thread.sleep(2000);
-//        }
-//    }
-    private int index=0;
+    private int index = 0;
 
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) {
         try {
             //虽然这里可以给服务端发消息但是我想在其他地方需要发消息的时候再发而不是收到服务端发来消息才发
-            ByteBuf buf = (ByteBuf)msg;
+            ByteBuf buf = (ByteBuf) msg;
             System.out.print(buf.toString(Charset.forName("UTF-8")));
         } finally {
 
         }
-        if(index<100) {
+        if (index < 100) {
             final ByteBuf buff = ctx.alloc().buffer(); // (2)
             buff.writeBytes("客户端\n".getBytes(Charset.forName("UTF-8")));
             ctx.writeAndFlush(buff);
@@ -80,8 +66,7 @@ class TimeClientHandler extends ChannelHandlerAdapter {
                 e.printStackTrace();
             }
             index++;
-        }
-        else {
+        } else {
             ctx.close();
         }
     }
