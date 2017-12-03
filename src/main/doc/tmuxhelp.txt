@@ -2594,3 +2594,6 @@ bind-key / command-prompt "split-window 'exec man %%'"
 bind-key S command-prompt "new-window -n %1 'ssh %1'"
 
 
+https://leanpub.com/the-tao-of-tmux/read#leanpub-auto-its-all-commands
+
+
