@@ -650,3 +650,6 @@ More Information about the hadoop-0.20-sbin Binary Programs.
 到这里，hadoop + kerberos基本完后。
  
 后面需要做的工作包括修改启动hadoop的脚本，部署kerberos slave服务器
+
+大数据平台架构参考文档
+http://database.51cto.com/art/201407/446416.htm
