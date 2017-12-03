@@ -1102,3 +1102,17 @@ sysctl -p
 链接：http://www.jianshu.com/p/6b2df6953143
 來源：简书
 著作权归作者所有。商业转载请联系作者获得授权，非商业转载请注明出处。
+
+内存使用到多少开始使用swap？
+vm.swappiness   这个内核参数控制
+/proc/sys/vm/swappiness
+
+这个交换参数控制内核从物理内存移出进程，移到交换空间。该参数从0到100，当该参数=0，表示只要有可能就尽力避免交换进程移出物理内存;该参数=100，这告诉内核疯狂的将数据移出物理内存移到swap缓存中。
+The defaultvalue I’ve seen on both enterprise level Red Hat and SLES servers is 60.
+To find out what the default value is on aparticular server, run:
+sysctl vm.swappiness
+The value is also located in/proc/sys/vm/swappiness.
+
+PS:设置vm.swappiness=0 后并不代表禁用swap分区，只是告诉内核，能少用到swap分区就尽量少用到，设置vm.swappiness=100的话，则表示尽量使用swap分区，默认的值是60
+
+调整内存参数，当内存使用率不足10%（开始是默认值60）时在使用swap，尽量避免使用swap，减少唤醒软中断进程，从而降低ksoftirqd进程对cpu的占用。
