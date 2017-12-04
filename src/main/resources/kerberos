@@ -228,3 +228,76 @@ KVNO Principal
    4 kadmin/admin@ZGP.COM
    4 kadmin/admin@ZGP.COM
 [root@cdh1 krb5kdc]#
+
+
+
+
+//////////////////TODO
+
+
+kadmin.local　　//以超管身份进入kadmin
+
+kadmin　　　　//进入kadmin模式，需输入密码
+
+kdb5_util create -r JENKIN.COM -s　　　　//创建数据库
+
+service krb5kdc start　　　　//启动kdc服务
+
+service kadmin start　　　　//启动kadmin服务
+
+service kprop start　　　　　//启动kprop服务
+
+kdb5_util dump /var/kerberos/krb5kdc/slave_data　　　　//生成dump文件
+
+kprop -f /var/kerberos/krb5kdc/slave_data master2.com　　　　//将master数据库同步是slave
+
+kadmin模式下：
+
+　　addprinc -randkey root/master1@JENKIN.COM   //生成随机key的principal
+
+　　addprinc admin/admin　　　　//生成指定key的principal
+
+　　listprincs　　　　//查看principal
+
+　　change_password -pw xxxx admin/admin　　//修改admin/admin的密码
+
+　　delete_principal  admin/admin　　　　//删除principal
+
+kinit admin/admin　　　　//验证principal是否可用
+
+xst -norandkey -k /var/kerberos/krb5kdc/keytab/root.keytab root/master1@JENKIN.COM host/master1@JENKIN.COM　　　　//为principal生成keytab，可同时添加多个
+
+ktadd -k /etc/krb5.keytab host/master1@JENKIN.COM　　　　//ktadd也可生成keytab
+
+kinit -k -t /var/kerberos/krb5kdc/keytab/root.keytab root/master1@JENKIN.COM 　　　　//测试keytab是否可用
+
+klist -e -k -t /var/kerberos/krb5kdc/keytab/root.keytab　　　　//查看keytab
+
+
+
+
+
+
+
+
+
+
+hadoop相关：
+
+./bin/hdfs zkfc -formatZK　　　　//格式化zkfc
+
+./bin/hdfs namenode -format　ns　　　　//格式化 namenode
+
+./sbin/start-dfs.sh　　　　//启动dfs, namenode,journalnode,datanode,zkfc都会启动
+
+./sbin/start-yarn.sh　　　　//启动yarn，nodemanager, resourcemanager都会启动
+
+./sbin/hadoop-daemon.sh start journalnode　　　　//启动journalnode， 也可单独启动 namenode, datanode
+
+./sbin/yarn-daemon.sh start resourcemanager　　//启动resourcemanager，也可单独启动nodemanager
+
+
+
+hadoop fs -put ./NOTICE.txt hdfs://ns/　　　　//上传文件至hdfs根目录
+
+hadoop fs -ls /　　　　查看hdfs根目录文件
