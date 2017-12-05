@@ -72,57 +72,13 @@ done
 
 5.2 管理集群脚本
 另外，为了方便管理集群，在 cdh1 上创建一个 shell 脚本用于批量管理集群，脚本如下（保存为
-manager_cluster.sh）：
+krbtool.sh）：
 
-#!/bin/bash
 
-role=$1
-command=$2
-
-dir=$role
-
-if [ X"$role" == X"hdfs" ];then
-  dir=hadoop
-fi
-
-if [ X"$role" == X"yarn" ];then
-        dir=hadoop
-fi
-
-if [ X"$role" == X"mapred" ];then
-        dir=hadoop
-fi
-
-for node in 56.121 56.122 56.123 ;do
-  echo "========192.168.$node========"
-  ssh 192.168.$node '
-    #先获取 root/admin 的凭证
-    echo root|kinit root/admin
-    host=`hostname -f| tr "[:upper:]" "[:lower:]"`
-    path="'$role'/$host"
-    #echo $path
-    principal=`klist -k /etc/'$dir'/conf/'$role'.keytab | grep $path | head -n1 | cut -d " " -f5`
-    #echo $principal
-    if [ X"$principal" == X ]; then
-      principal=`klist -k /etc/'$dir'/conf/'$role'.keytab | grep $path | head -n1 | cut -d " " -f4`
-      if [ X"$principal" == X ]; then
-            echo "Failed to get hdfs Kerberos principal"
-            exit 1
-      fi
-    fi
-    kinit -r 24l -kt /etc/'$dir'/conf/'$role'.keytab $principal
-    if [ $? -ne 0 ]; then
-        echo "Failed to login as hdfs by kinit command"
-        exit 1
-    fi
-    kinit -R
-    for src in `ls /etc/init.d|grep '$role'`;do service $src '$command'; done
-  '
-done
 使用方法为：
 
-$ sh manager_cluster.sh hdfs start #启动 hdfs 用户管理的服务
-$ sh manager_cluster.sh yarn start #启动 yarn 用户管理的服务
-$ sh manager_cluster.sh mapred start #启动 mapred 用户管理的服务
+$ bash krbtool.sh hdfs start #启动 hdfs 用户管理的服务
+$ bash krbtool.sh yarn start #启动 yarn 用户管理的服务
+$ bash krbtool.sh mapred start #启动 mapred 用户管理的服务
 
-$ sh manager_cluster.sh hdfs status # 在每个节点上获取 hdfs 的 ticket，然后可以执行其他操作，如批量启动 datanode 等等
+$ bash krbtool hdfs status # 在每个节点上获取 hdfs 的 ticket，然后可以执行其他操作，如批量启动 datanode 等等
