@@ -41,5 +41,4 @@ for node in $(cat slaves) ;do
     fi
     kinit -R
     for src in `ls /etc/init.d|grep '$role'`;do service $src '$command'; done
-  '
 done
