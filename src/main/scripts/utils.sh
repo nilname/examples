@@ -16,9 +16,9 @@ rscp(){
 
 help(){
     echo "execute commands in remote host:"
-    echo "  bash -x utils.sh  exec  root ls  /home"
+    echo "  bash -x $(basename $0)  exec  root ls  /home"
     echo "copy file to remote host"
-    echo "  bash -x utils.sh  cp  slaves root  /home"
+    echo "  bash -x $(basename $0)  cp  slaves root  /home"
 
 }
 FILENAME=$(basename $0)
