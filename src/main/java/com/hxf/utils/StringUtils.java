@@ -10,7 +10,6 @@ import java.util.Map;
  * 字符串操作工具类
  */
 public class StringUtils {
-
     /**
      * 首字母变小写
      *
