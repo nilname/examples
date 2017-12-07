@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 ########recode history
 #/etc/profile
 mkdir /usr/local/script
@@ -11,7 +12,7 @@ history   >/usr/local/script/hist$(date +%Y%m%d%H%M%S)
 
 
 
-#!/bin/bash
+
 
 DNS=LASHOU.COM
 hostname=`hostname -i`
@@ -55,9 +56,7 @@ kadmin.local -q "ktadd -k /etc/openldap/ldap.keytab ldap/cdh1@JAVACHEN.COM"
 #测试 ldap 是否可以正常使用
 ldapsearch -x -b 'dc=javachen,dc=com'
 
-//////////////////
 
-以下脚本用于在每个客户端上获得 root/admin 的 ticket，其密码为 root：
 
 #!/bin/sh
 
@@ -67,18 +66,6 @@ for node in 56.121 56.122 56.123 ;do
 done
 
 
-///////////////
 
 
-5.2 管理集群脚本
-另外，为了方便管理集群，在 cdh1 上创建一个 shell 脚本用于批量管理集群，脚本如下（保存为
-krbtool.sh）：
 
-
-使用方法为：
-
-$ bash krbtool.sh hdfs start #启动 hdfs 用户管理的服务
-$ bash krbtool.sh yarn start #启动 yarn 用户管理的服务
-$ bash krbtool.sh mapred start #启动 mapred 用户管理的服务
-
-$ bash krbtool hdfs status # 在每个节点上获取 hdfs 的 ticket，然后可以执行其他操作，如批量启动 datanode 等等

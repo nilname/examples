@@ -1,5 +1,15 @@
 #!/bin/bash
 
+
+# bash krbtool.sh hdfs start #启动 hdfs 用户管理的服务
+# bash krbtool.sh yarn start #启动 yarn 用户管理的服务
+# bash krbtool.sh mapred start #启动 mapred 用户管理的服务
+
+# bash krbtool hdfs status # 在每个节点上获取 hdfs 的 ticket，然后可以执行其他操作，如批量启动 datanode 等等
+
+
+
+
 role=$1
 command=$2
 
