@@ -1036,3 +1036,237 @@ ls: Failed on local exception: java.io.IOException: javax.security.sasl.SaslExce
 
 给我写信
 GitHub
+
+
+
+
+\\\\\\\\\\///////////////////////
+
+环境：Amabri 2.2.2、HDP 2.4.2、CentOS 6.5
+
+以下没有特殊说明的操作都是在ws1es机器上进行的：
+
+1.在集群中找台机器安装KDC
+
+#这台机器自带了kerberos client的两个包，需要先升级再安装server
+[root@ws1es sysconfig]# rpm -qa | grep krb
+krb5-workstation-1.10.3-10.el6_4.6.x86_64
+krb5-libs-1.10.3-10.el6_4.6.x86_64
+python-krbV-1.0.90-3.el6.x86_64
+pam_krb5-2.3.11-9.el6.x86_64
+[root@ws1es ~]# rpm -Uvh krb5-libs-1.10.3-57.el6.x86_64.rpm krb5-workstation-1.10.3-57.el6.x86_64.rpm
+warning: krb5-libs-1.10.3-57.el6.x86_64.rpm: Header V3 RSA/SHA1 Signature, key ID c105b9de: NOKEY
+Preparing...                ########################################### [100%]
+   1:krb5-libs              ########################################### [50%]
+   2:krb5-workstation       ########################################### [100%]
+[root@ws1es ~]# rpm -qa | grep krb
+krb5-libs-1.10.3-57.el6.x86_64
+python-krbV-1.0.90-3.el6.x86_64
+pam_krb5-2.3.11-9.el6.x86_64
+krb5-workstation-1.10.3-57.el6.x86_64
+[root@ws1es ~]# rpm -ivh krb5-server-1.10.3-57.el6.x86_64.rpm
+warning: krb5-server-1.10.3-57.el6.x86_64.rpm: Header V3 RSA/SHA1 Signature, key ID c105b9de: NOKEY
+Preparing...                ########################################### [100%]
+   1:krb5-server            ########################################### [100%]
+
+#这么装是因为我们的机器都不允许联网，如果您的机器能联网直接下就可以了。如下：
+yum install krb5-server krb5-libs krb5-workstation
+
+2.增加主机名与IP映射（别忘了发给其它节点）
+
+[root@ws1es ~]# cat /etc/hosts
+127.0.0.1   localhost localhost.localdomain localhost4 localhost4.localdomain4
+::1         localhost localhost.localdomain localhost6 localhost6.localdomain6
+192.168.1.66 ws1es.wondersoft.cn ws1es
+192.168.1.65 ws1m.wondersoft.cn ws1m
+192.168.1.64 ws1nn1.wondersoft.cn ws1nn1
+192.168.1.61 ws1dn1.wondersoft.cn ws1dn1
+192.168.1.62 ws1dn2.wondersoft.cn ws1dn2
+192.168.1.63 ws1dn3.wondersoft.cn ws1dn3
+
+3.修改三个配置文件
+
+#第一个文件，修改[realms]里的kdc和admin_server所在主机，EXAMPLE.COM这个域名也应修改，因为改了后面都得改我就没改。
+[root@ws1es ~]# cat /etc/krb5.conf
+[logging]
+ default = FILE:/var/log/krb5libs.log
+ kdc = FILE:/var/log/krb5kdc.log
+ admin_server = FILE:/var/log/kadmind.log
+
+[libdefaults]
+ default_realm = EXAMPLE.COM
+ dns_lookup_realm = false
+ dns_lookup_kdc = false
+ ticket_lifetime = 24h
+ renew_lifetime = 7d
+ forwardable = true
+
+[realms]
+ EXAMPLE.COM = {
+  kdc = ws1es.wondersoft.cn
+  admin_server = ws1es.wondersoft.cn
+ }
+
+[domain_realm]
+ .example.com = EXAMPLE.COM
+ example.com = EXAMPLE.COM
+
+第二个文件，前面域名改了的话这里的域名也得改，与之对应。其余保持默认
+[root@ws1es ~]# cat /var/kerberos/krb5kdc/kdc.conf
+[kdcdefaults]
+ kdc_ports = 88
+ kdc_tcp_ports = 88
+
+[realms]
+ EXAMPLE.COM = {
+  #master_key_type = aes256-cts
+  acl_file = /var/kerberos/krb5kdc/kadm5.acl
+  dict_file = /usr/share/dict/words
+  admin_keytab = /var/kerberos/krb5kdc/kadm5.keytab
+  supported_enctypes = aes256-cts:normal aes128-cts:normal des3-hmac-sha1:normal arcfour-hmac:normal des-hmac-sha1:normal des-cbc-md5:normal des-cbc-crc:normal
+ }
+
+第三个文件，没有的话手动建一个。
+#Set up the KDC Access Control List (ACL)
+[root@ws1es ~]# cat /var/kerberos/krb5kdc/kadm5.acl
+*/admin@EXAMPLE.COM *
+
+4.Copy the krb5.conf to every cluster node（用不着，只拷给ambari server所在机器就可以，其它节点后面会自动分发）
+
+[root@ws1es ~]# scp /etc/krb5.conf ws1dn1:/etc/
+[root@ws1es ~]# scp /etc/krb5.conf ws1dn2:/etc/
+[root@ws1es ~]# scp /etc/krb5.conf ws1dn3:/etc/
+[root@ws1es ~]# scp /etc/krb5.conf ws1nn1:/etc/
+[root@ws1es ~]# scp /etc/krb5.conf ws1m:/etc/
+
+5.Use the utility kdb5_util to create the Kerberos database
+
+[root@ws1es ~]# /usr/sbin/kdb5_util create -s -r EXAMPLE.COM
+Loading random data
+Initializing database '/var/kerberos/krb5kdc/principal' for realm 'EXAMPLE.COM',
+master key name 'K/M@EXAMPLE.COM'
+You will be prompted for the database Master Password.
+It is important that you NOT FORGET this password.
+Enter KDC database master key:
+Re-enter KDC database master key to verify:
+
+出现 Loading random data 的时候另开个终端执行点消耗CPU的命令如 cat /dev/sda > /dev/urandom 可以加快随机数采集。
+
+6.Start the KDC server and the KDC admin server
+
+[root@ws1es ~]# service krb5kdc start
+正在启动 Kerberos 5 KDC：                                  [确定]
+[root@ws1es ~]# service kadmin start
+正在启动 Kerberos 5 Admin Server：                         [确定]
+
+7.Set up the KDC server to auto-start on boot
+
+[root@ws1es ~]# chkconfig krb5kdc on
+[root@ws1es ~]# chkconfig kadmin on
+
+8.Create a KDC admin by creating an admin principal
+
+[root@ws1es ~]# kadmin.local
+Authenticating as principal root/admin@EXAMPLE.COM with password.
+kadmin.local:  addprinc admin/admin@EXAMPLE.COM
+WARNING: no policy specified for admin/admin@EXAMPLE.COM; defaulting to no policy
+Enter password for principal "admin/admin@EXAMPLE.COM":
+Re-enter password for principal "admin/admin@EXAMPLE.COM":
+Principal "admin/admin@EXAMPLE.COM" created.
+kadmin.local:  listprincs
+K/M@EXAMPLE.COM
+admin/admin@EXAMPLE.COM
+kadmin/admin@EXAMPLE.COM
+kadmin/changepw@EXAMPLE.COM
+kadmin/ws1es.wondersoft.cn@EXAMPLE.COM
+krbtgt/EXAMPLE.COM@EXAMPLE.COM
+
+9.Restart the kadmin process.
+
+[root@ws1es ~]# service kadmin restart
+10.关闭防火墙和selinux（所有节点）
+[root@ws1es ~]# service iptables stop
+iptables：将链设置为政策 ACCEPT：filter                    [确定]
+iptables：清除防火墙规则：                                 [确定]
+iptables：正在卸载模块：                                   [确定]
+[root@ws1es ~]# service iptables status
+iptables：未运行防火墙。
+
+[root@ws1es ~]# setenforce 0 #临时关闭selinux
+[root@ws1es ~]# vim /etc/selinux/config#永久关闭，需重启
+把里边的一行改为SELINUX=disabled
+
+11.下载JCE
+补充1：
+JCE（Java Cryptography Extension）是一组包，它们提供用于加密、密钥生成和协商以及 Message Authentication Code（MAC）算法的框架和实现。
+它提供对对称、不对称、块和流密码的加密支持，它还支持安全流和密封的对象。它不对外出口，用它开发完成封装后将无法调用。
+补充2：
+If you are using Oracle JDK, you must distribute and install the JCE on all hosts in the cluster, including the Ambari Server.
+Be sure to restart Ambari Server after installng the JCE. If you are using OpenJDK, some distributions of the OpenJDK
+ come with unlimited strength JCE automatically and therefore, installation of JCE is not required.
+
+For Oracle JDK 1.8:
+
+http://www.oracle.com/technetwork/java/javase/downloads/jce8-download-2133166.html
+
+For Oracle JDK 1.7:
+
+http://www.oracle.com/technetwork/java/javase/downloads/jce-7-download-432124.html
+
+12.将下载的JCE解压并覆盖$JAVA_HOME/jre/lib/security/目录下的文件（所有节点）
+
+[root@ws1nn1 ~]# unzip UnlimitedJCEPolicyJDK7.zip
+Archive:  UnlimitedJCEPolicyJDK7.zip
+   creating: UnlimitedJCEPolicy/
+  inflating: UnlimitedJCEPolicy/US_export_policy.jar
+  inflating: UnlimitedJCEPolicy/local_policy.jar
+  inflating: UnlimitedJCEPolicy/README.txt
+[root@ws1nn1 ~]# cd UnlimitedJCEPolicy
+[root@ws1nn1 UnlimitedJCEPolicy]# ll
+总用量 16
+-rw-rw-r-- 1 root root 2500 6月   1 2011 local_policy.jar
+-rw-r--r-- 1 root root 7289 6月   1 2011 README.txt
+-rw-rw-r-- 1 root root 2487 6月   1 2011 US_export_policy.jar
+[root@ws1nn1 UnlimitedJCEPolicy]# cp *.jar /opt/java/jre/lib/security/
+cp：是否覆盖"/opt/java/jre/lib/security/local_policy.jar"？ y
+cp：是否覆盖"/opt/java/jre/lib/security/US_export_policy.jar"？ y
+[root@ws1nn1 UnlimitedJCEPolicy]# cd /opt/java/jre/lib/security/
+[root@ws1nn1 security]# ll
+总用量 136
+-rw-r--r-- 1 root root  3890 9月  30 09:55 blacklist
+-rw-r--r-- 1 root root 92776 9月  30 09:55 cacerts
+-rw-r--r-- 1 root root   158 9月  30 09:55 javafx.policy
+-rw-r--r-- 1 root root  2593 9月  30 09:55 java.policy
+-rw-r--r-- 1 root root 17838 9月  30 09:55 java.security
+-rw-r--r-- 1 root root    98 9月  30 09:55 javaws.policy
+-rw-r--r-- 1 root root  2500 12月  7 17:01 local_policy.jar
+-rw-r--r-- 1 root root     0 9月  30 09:55 trusted.libraries
+-rw-r--r-- 1 root root  2487 12月  7 17:01 US_export_policy.jar
+
+
+#替换其它节点的JCE
+[root@ws1nn1 security]# scp *.jar ws1m:/opt/java/jre/lib/security/
+local_policy.jar                                                                                                                                                                                                                            100% 2500     2.4KB/s   00:00
+US_export_policy.jar                                                                                                                                                                                                                        100% 2487     2.4KB/s   00:00
+[root@ws1nn1 security]# scp *.jar ws1dn1:/opt/java/jre/lib/security/
+The authenticity of host 'ws1dn1 (192.168.1.61)' can't be established.
+RSA key fingerprint is b4:59:18:46:76:2e:27:e2:2c:5b:36:9b:49:b8:72:7b.
+Are you sure you want to continue connecting (yes/no)? yes
+Warning: Permanently added 'ws1dn1,192.168.1.61' (RSA) to the list of known hosts.
+local_policy.jar                                                                                                                                                                                                                            100% 2500     2.4KB/s   00:00
+US_export_policy.jar                                                                                                                                                                                                                        100% 2487     2.4KB/s   00:00
+[root@ws1nn1 security]# scp *.jar ws1dn2:/opt/java/jre/lib/security/
+The authenticity of host 'ws1dn2 (192.168.1.62)' can't be established.
+RSA key fingerprint is 45:47:8e:56:08:66:2b:23:a6:a6:f1:09:14:8a:64:91.
+Are you sure you want to continue connecting (yes/no)? yes
+Warning: Permanently added 'ws1dn2,192.168.1.62' (RSA) to the list of known hosts.
+local_policy.jar                                                                                                                                                                                                                            100% 2500     2.4KB/s   00:00
+US_export_policy.jar                                                                                                                                                                                                                        100% 2487     2.4KB/s   00:00
+[root@ws1nn1 security]# scp *.jar ws1dn3:/opt/java/jre/lib/security/
+The authenticity of host 'ws1dn3 (192.168.1.63)' can't be established.
+RSA key fingerprint is 02:5c:3b:ce:20:f1:27:f9:6e:ca:f9:95:f6:66:84:6f.
+Are you sure you want to continue connecting (yes/no)? yes
+Warning: Permanently added 'ws1dn3,192.168.1.63' (RSA) to the list of known hosts.
+local_policy.jar                                                                                                                                                                                                                            100% 2500     2.4KB/s   00:00
+US_export_policy.jar                                                                                                                                                                                                                        100% 2487     2.4KB/s   00:00
+13.Launching the Kerberos Wizard (Automated Setup)
