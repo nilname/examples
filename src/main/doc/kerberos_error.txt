@@ -563,3 +563,476 @@ chown -R mapred.hadoop /usr/local/hadoop/logs/
 到这里，hadoop + kerberos基本完后。
 
 后面需要做的工作包括修改启动hadoop的脚本，部署kerberos slave服务器。
+
+//////////////////////////////TODO
+
+ 为CDH 5集群添加Kerberos支持
+2016-05-26 17:38 3668人阅读 评论(0) 收藏 举报
+ 分类： HDFS（13）
+目录(?)[+]
+GitHub      Kerberos
+
+参考链接：
++ Configuring Authentication in Clouera Manager
++ Understanding Kerberos
++ Instlling Kerberos
++ Troubleshooting Authentication Issues
++ Configuring YARN for Long-running Applications
+
+
+前提
+
+Hadoop的集群上已安装好了CDH 5.3.2 以及 Cloudera Manager 5.3.2。
+Kerberos v5 在Hadoop集群上也已经安装好了，并且Kerberos中存在一个名为『GUIZHOU.COM』的realm，里面包含 hadoop1.com - hadoop5.com 共5台主机，hadoop1.com上运行cloudera manager server，5台主机都运行着cloudera manager agent。
+
+我们再看一下我们KDC的配置。
+
+hadopo[1-5].com主机上 /etc/krb5.conf 文件的内容
+[logging]
+ default = FILE:/var/log/krb5libs.log
+ kdc = FILE:/var/log/krb5kdc.log
+ admin_server = FILE:/var/log/kadmind.log
+[libdefaults]
+ default_realm = GUIZHOU.COM
+ dns_lookup_realm = false
+ dns_lookup_kdc = false
+ ticket_lifetime = 24h
+ renew_lifetime = 7d
+ forwardable = true
+ renewable = true
+[realms]
+ GUIZHOU.COM = {
+  kdc = hadoop1.com
+  admin_server = hadoop1.com
+ }
+[domain_realm]
+ hadoop1.com = GUIZHOU.COM
+ hadoop2.com = GUIZHOU.COM
+ hadoop3.com = GUIZHOU.COM
+ hadoop4.com = GUIZHOU.COM
+ hadoop5.com = GUIZHOU.COM
+
+hadoop1.com主机上 /var/kerberos/krb5kdc/kdc.conf 文件的内容
+[kdcdefaults]
+   kdc_ports = 88
+   kdc_tcp_ports = 88
+[realms]
+   GUIZHOU.COM = {
+   #master_key_type = aes256-cts
+  acl_file = /var/kerberos/krb5kdc/kadm5.acl
+  dict_file = /usr/share/dict/words
+  admin_keytab = /var/kerberos/krb5kdc/kadm5.keytab
+  supported_enctypes = aes256-cts:normal aes128-cts:normal des3-hmac-sha1:normal arcfour-hmac:normal des-hmac-sha1:normal des-cbc-md5:normal des-cbc-crc:normal
+  max_life = 1d
+  max_renewable_life = 7d
+ }
+
+配置过程
+
+安装JCE Policy File
+
+如果你的操作系统是CentOS/Red Hat 5.5或更高版本（这些OS默认使用AES-256来加密tickets），则你就必须在所有的集群节点以及Hadoop使用者的主机上安装 Java Cryptography Extension (JCE) Unlimited Strength Jurisdiction Policy File 。
+
+为Cloudera Hadoop集群安装JCE Policy File的过程可以 参考这里 。
+
+
+创建Cloudera Manager Principal
+
+为了能在集群中创建和部署host principals和keytabs，Cloudera Manager Server必须有一个Kerberos principal来创建其他的账户。如果一个principal的名字的第二部分是admin（例如， username/admin@YOUR-LOCAL-REALM.COM ），那么该principal就拥有administrative privileges。
+
+在KDC server主机上，创建一个名为『cloudera-scm』的principal，并将其密码设为『cloudera-scm-1234』。执行命令：
+
+[root@hadoop1 ~]# kadmin.local
+Authenticating as principal root/admin@GUIZHOU.COM with password.
+kadmin.local:  addprinc -pw cloudera-scm-1234 cloudera-scm/admin@GUIZHOU.COM
+WARNING: no policy specified for cloudera-scm/admin@GUIZHOU.COM; defaulting to no policy
+Principal "cloudera-scm/admin@GUIZHOU.COM" created.
+
+
+通过执行kadmin.local中的listprincs命令可以看到创建了一个名为『cloudera-scm/admin@GUIZHOU.COM』的principal：
+
+kadmin.local:  listprincs
+K/M@GUIZHOU.COM
+admin/admin@GUIZHOU.COM
+cloudera-scm/admin@GUIZHOU.COM
+kadmin/admin@GUIZHOU.COM
+kadmin/changepw@GUIZHOU.COM
+kadmin/hadoop1.com@GUIZHOU.COM
+krbtgt/GUIZHOU.COM@GUIZHOU.COM
+xiaotao@GUIZHOU.COM
+
+通过CDH Wizard来启用Kerberos
+
+在Cloudera Manager界面上点击Cluster名称右边的『Enable Kerberos』选项。点击之后，会要求你确认以下的事项：
+
+KDC已经安装好并且正在运行；
+
+将KDC配置为允许renewable tickets with non-zerolifetime;
+方法：在kdc.conf文件中如下配置
+[kdcdefaults]
+ kdc_ports = 88
+ kdc_tcp_ports = 88
+[realms]
+ GUIZHOU.COM = {
+  acl_file = /var/kerberos/krb5kdc/kadm5.acl
+  dict_file = /usr/share/dict/words
+  admin_keytab = /var/kerberos/krb5kdc/kadm5.keytab
+  supported_enctypes = aes256-cts:normal aes128-cts:normal des3-hmac-sha1:normal arcfour-hmac:normal des-hmac-sha1:normal des-cbc-md5:normal des-cbc-crc:normal
+  max_life = 1d
+  max_renewable_life = 7d
+ }
+其中必要的选项是kdc_tcp_ports、max_life和max_renewable_life。
+
+
+3. 在Cloudera Manager Server上安装openldap-clients
+
+
+4. 为Cloudera Manager创建一个principal，使其能够有权限在KDC中创建其他的principals，这一步在上一节中已经完成了。
+点击continue，进入下一页进行配置，要注意的是：这里的『Kerberos Encryption Types』必须跟KDC实际支持的加密类型匹配（即kdc.conf中的值）。
+
+点击continue，进入下一页，这一页中可以不勾选『Manage krb5.conf through Cloudera Manager』。
+
+点击continue，进入下一页，输入Cloudera Manager Principal（就我们之前创建的cloudera-scm/admin@GUIZHOU.COM ）的username和password。
+
+点击continue，进入下一页，导入KDC Account Manager Credentials。
+
+点击continue，进入下一页，restart cluster并且enable Kerberos。
+
+大功告成！现在，Cloudera Manager Server/Hosts可以重启，但是CDH cluster还不能启动。
+
+
+创建HDFS超级用户
+
+当我们为HDFS服务开启Kerberos之后，就无法直接通过sudo -u hdfs来访问HDFS了，因为此时还不存在一个名为hdfs的principal，无法通过Kerberos的authenticatin。因此必须首先创建一个Kerberos principal（其第一部分是hdfs）。
+
+[root@hadoop1 ~]# kadmin.local
+Authenticating as principal root/admin@GUIZHOU.COM with password.
+kadmin.local:  addprinc hdfs@GUIZHOU.COM
+WARNING: no policy specified for hdfs@GUIZHOU.COM; defaulting to no policy
+Enter password for principal "hdfs@GUIZHOU.COM":
+Re-enter password for principal "hdfs@GUIZHOU.COM":
+Principal "hdfs@GUIZHOU.COM" created.
+这里我们为principal『hdfs@GUIZHOU.com』设置了密码『hdfs-1234』。
+
+为了能够以hdfs的身份来运行命令，必须为 hdfs principal 获取Kerberos credentials。因此，运行命令：
+
+[root@hadoop1 ~]# kinit hdfs@GUIZHOU.COM
+
+看看现在KDC database中有哪些principals
+
+通过CDH Wizard成功地为Hadoop集群添加了Kerberos支持之后，可以看一下现在KDC database 中存在哪些principals。在KDC主机上运行kadmin.localo，在其中用listprincs命令来查看。
+
+[root@hadoop1 ~]# kadmin.local
+Authenticating as principal hdfs/admin@GUIZHOU.COM with password.
+kadmin.local: listprincs
+HTTP/hadoop1.com@GUIZHOU.COM
+HTTP/hadoop2.com@GUIZHOU.COM
+HTTP/hadoop3.com@GUIZHOU.COM
+HTTP/hadoop4.com@GUIZHOU.COM
+HTTP/hadoop5.com@GUIZHOU.COM
+K/M@GUIZHOU.COM
+admin/admin@GUIZHOU.COM
+cloudera-scm/admin@GUIZHOU.COM
+hbase/hadoop1.com@GUIZHOU.COM
+hbase/hadoop2.com@GUIZHOU.COM
+hbase/hadoop3.com@GUIZHOU.COM
+hbase/hadoop4.com@GUIZHOU.COM
+hbase/hadoop5.com@GUIZHOU.COM
+hdfs/hadoop1.com@GUIZHOU.COM
+hdfs/hadoop2.com@GUIZHOU.COM
+hdfs/hadoop3.com@GUIZHOU.COM
+hdfs/hadoop4.com@GUIZHOU.COM
+hdfs/hadoop5.com@GUIZHOU.COM
+hdfs@GUIZHOU.COM
+hive/hadoop1.com@GUIZHOU.COM
+hive/hadoop2.com@GUIZHOU.COM
+hive/hadoop3.com@GUIZHOU.COM
+hive/hadoop4.com@GUIZHOU.COM
+hive/hadoop5.com@GUIZHOU.COM
+httpfs/hadoop2.com@GUIZHOU.COM
+hue/hadoop1.com@GUIZHOU.COM
+hue/hadoop2.com@GUIZHOU.COM
+hue/hadoop3.com@GUIZHOU.COM
+kadmin/admin@GUIZHOU.COM
+kadmin/changepw@GUIZHOU.COM
+kadmin/hadoop1.com@GUIZHOU.COM
+krbtgt/GUIZHOU.COM@GUIZHOU.COM
+mapred/hadoop4.com@GUIZHOU.COM
+oozie/hadoop4.com@GUIZHOU.COM
+spark/hadoop1.com@GUIZHOU.COM
+test@GUIZHOU.COM
+xiaotao@GUIZHOU.COM
+yarn/hadoop1.com@GUIZHOU.COM
+yarn/hadoop2.com@GUIZHOU.COM
+yarn/hadoop3.com@GUIZHOU.COM
+yarn/hadoop4.com@GUIZHOU.COM
+yarn/hadoop5.com@GUIZHOU.COM
+zookeeper/hadoop1.com@GUIZHOU.COM
+zookeeper/hadoop4.com@GUIZHOU.COM
+zookeeper/hadoop5.com@GUIZHOU.COM
+可以看到，很多的pincipals都是CDH帮我们添加进去的。
+
+
+为每一个User Account创建Kerberos Principal
+
+当集群运行Kerberos后，每一个Hadoop user都必须有一个principal或者keytab来获取Kerberos credentials，这样才能访问集群并使用Hadoop的服务。也就是说，如果Hadoop集群存在一个名为tom@GUIZHOU.COM的principal，那么在集群的每一个节点上应该存在一个名为tom的Linux用户。同时，在HDFS中的目录/user要存在相应的用户目录（即/user/tom），且该目录的owner和group都要是tom。
+
+Linux user 的 user id 要大于等于1000，否则会无法提交Job。例如，如果以hdfs（id为496）的身份提交一个job，就会看到以下的错误信息：
+
+INFO mapreduce.Job: Job job_1442654915965_0002 failed with state FAILED due to: Application application_1442654915965_0002 failed 2 times due to AM Container for appattempt_1442654915965_0002_000002 exited with exitCode: -1000 due to: Application application_1442654915965_0002 initialization failed (exitCode=255) with output: Requested user hdfs is not whitelisted and has id 496,which is below the minimum allowed 1000
+
+
+解决方法：
+1. 修改一个用户的user id?
+    用命令 usermod -u <new-user-id> <user>
+2. 修改Clouder关于这个该项的设置
+    在 Cloudera中修改配置项
+    YARN -> Node Manager Group -> Security -> Minimum User ID
+    可见该配置项的默认值是1000，把它改为0即可。
+
+
+
+确认Kerberized Hadoop Cluster可以正常使用
+
+确认HDFS可以正常使用
+
+登录到某一个节点后，切换到hdfs用户，然后用kinit来获取credentials。
+现在用'hadoop dfs -ls /'应该能正常输出结果。
+
+用kdestroy销毁credentials后，再使用hadoop dfs -ls /会发现报错。
+
+
+确认可以正常提交MapReduce job
+
+获取了hdfs的证书后，提交一个PI程序，如果能正常提交并成功运行，则说明Kerberized Hadoop cluster在正常工作。
+
+如果能提交Job，但是运行时出错，如下：
+
+[hdfs@hadoop2 ~]$ hadoop jar /opt/cloudera/parcels/CDH-5.3.2-1.cdh5.3.2.p0.10/jars/hadoop-examples.jar pi 4 4
+Number of Maps = 4
+Samples per Map = 4
+Wrote input for Map #0
+Wrote input for Map #1
+Wrote input for Map #2
+Wrote input for Map #3
+Starting Job
+15/09/19 17:30:40 INFO client.RMProxy: Connecting to ResourceManager at hadoop5.com/59.215.222.76:8032
+15/09/19 17:30:40 INFO hdfs.DFSClient: Created HDFS_DELEGATION_TOKEN token 1 for hdfs on 59.215.222.76:8020
+15/09/19 17:30:40 ERROR hdfs.KeyProviderCache: Could not find uri with key [dfs.encryption.key.provider.uri] to create a keyProvider !!
+15/09/19 17:30:40 INFO security.TokenCache: Got dt for hdfs://hadoop5.com:8020; Kind: HDFS_DELEGATION_TOKEN, Service: 59.215.222.76:8020, Ident: (HDFS_DELEGATION_TOKEN token 1 for hdfs)
+15/09/19 17:30:40 ERROR hdfs.KeyProviderCache: Could not find uri with key [dfs.encryption.key.provider.uri] to create a keyProvider !!
+15/09/19 17:30:40 ERROR hdfs.KeyProviderCache: Could not find uri with key [dfs.encryption.key.provider.uri] to create a keyProvider !!
+15/09/19 17:30:40 ERROR hdfs.KeyProviderCache: Could not find uri with key [dfs.encryption.key.provider.uri] to create a keyProvider !!
+实际上这是一个bug，可以忽略它，不影响Job的运行。
+
+
+
+确保其他组件（ZooKeeper / HBase等）正常运行
+
+现在虽然HDFS可以正常运行，YARN job也可以正常运行，但是如果启动HBase，那么会发现HBase不能正常启动。
+
+所以，在安装了Kerberized CDH 后，我们还要针对HBase（以及ZooKeeper）进行配置，具体步骤参考 HBase Authentication
+
+
+
+
+常见问题
+
+参考 Troubleshooting Authentication Issues
+
+1. 运行任何hadoop命令都会失败
+
+例如，以 hdfs 的身份运行hadoop dfs -ls /，出现以下异常：
+
+[hdfs@hadoop2 ~]$ hadoop dfs -ls /
+DEPRECATED: Use of this script to execute hdfs command is deprecated.
+Instead use the hdfs command for it.
+
+
+15/09/19 14:24:38 WARN security.UserGroupInformation: PriviledgedActionException as:hdfs (auth:KERBEROS) cause:javax.security.sasl.SaslException: GSS initiate failed [Caused by GSSException: No valid credentials provided (Mechanism level: Failed to find any Kerberos tgt)]
+
+15/09/19 14:24:38 WARN ipc.Client: Exception encountered while connecting to the server : javax.security.sasl.SaslException: GSS initiate failed [Caused by GSSException: No valid credentials provided (Mechanism level: Failed to find any Kerberos tgt)]
+
+15/09/19 14:24:38 WARN security.UserGroupInformation: PriviledgedActionException as:hdfs (auth:KERBEROS) cause:java.io.IOException: javax.security.sasl.SaslException: GSS initiate failed [Caused by GSSException: No valid credentials provided (Mechanism level: Failed to find any Kerberos tgt)]
+
+ls: Failed on local exception: java.io.IOException: javax.security.sasl.SaslException: GSS initiate failed [Caused by GSSException: No valid credentials provided (Mechanism level: Failed to find any Kerberos tgt)]; Host Details : local host is: "hadoop2.com/59.215.222.72"; destination host is: "hadoop5.com":8020;
+
+如果出现这种情况，逐项检查：
+
+检查操作时的身份，例如是否是用hdfs身份操作的；
+检查是否已经获得了credentials：kinit hdfs@GUIZHOU.COM;
+尝试删除credentials并重新获取：destroy => kinit
+tickets是否是renewable，检查 kdc.conf 的配置；
+检查是否安装了JCE Policy File，这可以通过Cloudera的Kerberos Inspector来检查；
+
+2. hdfs用户无法提交一个Job
+
+『user id』的值不够大
+
+Linux user 的 user id要大于等于1000，否则会无法提交Job。例如，如果以hdfs（id为496）的身份提交一个job，就会看到以下的错误信息：
+
+INFO mapreduce.Job: Job job_1442654915965_0002 failed with state FAILED due to: Application application_1442654915965_0002 failed 2 times due to AM Container for appattempt_1442654915965_0002_000002 exited with exitCode: -1000 due to: Application application_1442654915965_0002 initialization failed (exitCode=255) with output: Requested user hdfs is not whitelisted and has id 496,which is below the minimum allowed 1000
+解决方法：
+a). 修改一个用户的user id?
+    用命令 usermod -u <new-user-id> <user>
+    不推荐采取这种解决方式，否则hdfs用户的非家目录中的文件的owner都要手动去一一修改。
+b). 修改Clouder关于这个该项的设置
+    在 Cloudera中修改配置项
+    YARN -> Node Manager Group -> Security -> Minimum User ID
+    可见该配置项的默认值是1000，把它改为一个较小的值即可。
+
+
+hdfs用户被禁止运行 YARN container
+
+配置了Kerberos之后，有几个用户被禁止运行YARN runner，默认的被禁用户包括『hdfs, yarn, mapred, bin』，如果用hdfs提交一个YARN job，则会遇到以下的异常：
+
+15/09/20 12:18:25 INFO mapreduce.Job: Job job_1442722429197_0001 failed with state FAILED due to: Application application_1442722429197_0001 failed 2 times due to AM Container for appattempt_1442722429197_0001_000002 exited with exitCode: -1000 due to: Application application_1442722429197_0001 initialization failed (exitCode=255) with output: Requested user hdfs is banned
+解决方法，将hdfs用户从banned.users名单中去掉，参考 这里。
+
+
+3. YARN job运行时无法创建缓存目录
+
+[hdfs@hadoop2 ~]$ hadoop jar /opt/cloudera/parcels/CDH-5.3.2-1.cdh5.3.2.p0.10/jars/hadoop-examples.jar pi 2 5
+Number of Maps = 2
+Samples per Map = 5
+Wrote input for Map #0
+Wrote input for Map #1
+Starting Job
+15/09/20 13:08:36 INFO mapreduce.Job: map 0% reduce 0%
+15/09/20 13:08:36 INFO mapreduce.Job: Job job_1442724165689_0005 failed with state FAILED due to: Application application_1442724165689_0005 failed 2 times due to AM Container for appattempt_1442724165689_0005_000002 exited with exitCode: -1000 due to: Application application_1442724165689_0005 initialization failed (exitCode=255) with output: main : command provided 0
+main : user is hdfs
+main : requested yarn user is hdfs
+Can't create directory /data/data/yarn/nm/usercache/hdfs/appcache/application_1442724165689_0005 - Permission denied
+Did not create any app directories
+. Failing this attempt.. Failing the application.
+15/09/20 13:08:36 INFO mapreduce.Job: Counters: 0
+Job Finished in 15.144 seconds
+java.io.FileNotFoundException: File does not exist: hdfs://hadoop5.com:8020/user/hdfs/QuasiMonteCarlo_1442725699335_673190642/out/reduce-out
+解决方法：
+在每一个NodeManager节点上删除该用户的缓存目录，对于用户hdfs，是/data/data/yarn/nm/usercache/hdfs。
+
+原因：
+该缓存目录在集群进入Kerberos状态前就已经存在了。例如当我们还没为集群Kerberos支持的时候，就用该用户跑过YARN应用。也许这是一个bug
+
+
+
+4. 个别节点无法通过Kerberos验证
+
+在为CDH配置好了Kerberos后，在某些节点上，可以通过kinit hdfs来获取hdfs@GUIZHOU这个credentials，然后可以操作HDFS文件系统。但是在某些节点上，即使在获取了hdfs的ticket之后，也无法操作HDFS文件系统，如下：
+
+[hdfs@hadoop1 ~]$ kinit hdfs
+Password for hdfs@GUIZHOU.COM:   <这里输入密码 hdfs-1234>
+
+[hdfs@hadoop1 ~]$ klist        该principal已经获得了ticket
+Ticket cache: FILE:/tmp/krb5cc_1100
+Default principal: hdfs@GUIZHOU.COM
+
+Valid starting             Expires                     Service principal
+09/21/15 10:10:21    09/22/15 10:10:21    krbtgt/GUIZHOU.COM@GUIZHOU.COM
+               renew until 09/21/15 10:10:21
+
+[hdfs@hadoop1 ~]$ hadoop dfs -ls /
+DEPRECATED: Use of this script to execute hdfs command is deprecated.
+Instead use the hdfs command for it.     该principal还是无法操作HDFS
+
+15/09/21 10:10:36 WARN security.UserGroupInformation: PriviledgedActionException as:hdfs (auth:KERBEROS) cause:javax.security.sasl.SaslException: GSS initiate failed [Caused by GSSException: No valid credentials provided (Mechanism level: Failed to find any Kerberos tgt)]
+
+15/09/21 10:10:36 WARN ipc.Client: Exception encountered while connecting to the server : javax.security.sasl.SaslException: GSS initiate failed [Caused by GSSException: No valid credentials provided (Mechanism level: Failed to find any Kerberos tgt)]
+
+15/09/21 10:10:36 WARN security.UserGroupInformation: PriviledgedActionException as:hdfs (auth:KERBEROS) cause:java.io.IOException: javax.security.sasl.SaslException: GSS initiate failed [Caused by GSSException: No valid credentials provided (Mechanism level: Failed to find any Kerberos tgt)]
+
+ls: Failed on local exception: java.io.IOException: javax.security.sasl.SaslException: GSS initiate failed [Caused by GSSException: No valid credentials provided (Mechanism level: Failed to find any Kerberos tgt)]; Host Details : local host is: "hadoop1.com/59.215.222.3"; destination host is: "hadoop5.com":8020;
+
+
+在集群的每一个节点上尝试，发现只有hadoop1.com这个节点上存在这个问题，其他4个节点（hadoop2.com - hadoop5.com）上都没有这个问题。所以，应该是这个节点的某些配置有问题。
+
+检查集群每个节点的Kerberos配置
+Cloudera Manager => Administration => Kerberos => Security Inspector => (等待检测结果···) => Show Inspector Results，可以发现hadoop1.com节点上的JCE文件没有安装好，见 截图。
+
+所以，下面我们就要为该节点安装JCE Policy File即可，具体方法上面部分有提到。
+经检验，hadoop1.com节点安装了JCE Policy文件后，hdfs的命令可以正常使用了。
+
+
+
+5. 怎样让hdfs之外的账户（hbase、mapred等）通过验证？
+
+
+以hbase@GUIZHOU.COM来访问HDFS
+
+经过上面的配置，我们可以通过命令kinit hdfs来以hdfs的身份访问HDFS，那么如果我想以hbase的身份来访问HDFS呢？
+
+尝试一下：
+
+[root@hadoop1 ~]# kinit hbase
+kinit: Client not found in Kerberos database while getting initial credentials
+报错: 不存在hbase这个principal。
+
+在kadmin.local中通过命令listprincs可以看出，不存在hbase@GUIZHOU.COM这个principal，但是存在以下5个相关的principal：
+
+[root@hadoop1 ~]# kadmin.local
+Authenticating as principal hdfs/admin@GUIZHOU.COM with password.
+kadmin.local: listprincs
+hbase/hadoop1.com@GUIZHOU.COM
+hbase/hadoop2.com@GUIZHOU.COM
+hbase/hadoop3.com@GUIZHOU.COM
+hbase/hadoop4.com@GUIZHOU.COM
+hbase/hadoop5.com@GUIZHOU.COM
+
+
+再来试一下：
+
+[root@hadoop1 ~]# kinit hbase/hadoop1.com@GUIZHOU.COM
+Password for hbase/hadoop1.com@GUIZHOU.COM:
+哎呀，它让我输入hbase/hadoop1.com@GUIZHOU.COM这个principal的密码，但是这个principal不是我们创建的，是Cloudera Manager自己创建的，我们哪里知道它的密码呢！咋办？
+
+回想一下，hdfs这个principal是我们自己创建的，因此我们也如法炮制地创建一个hbase的principal，如下：
+
+[root@hadoop1 ~]# kadmin.local
+Authenticating as principal root/admin@GUIZHOU.COM with password.
+kadmin.local: addprinc hbase@GUIZHOU.COM
+WARNING: no policy specified for hbase@GUIZHOU.COM; defaulting to no policy
+Enter password for principal "hbase@GUIZHOU.COM":     密码设为『hbase-1234』
+Re-enter password for principal "hbase@GUIZHOU.COM":
+Principal "hbase@GUIZHOU.COM" created.
+
+
+现在，我们再试一下：
+
+[root@hadoop1 ~]# kinit hbase
+Password for hbase@GUIZHOU.COM:
+[root@hadoop1 ~]# hdfs dfs -put UnlimitedJCEPolicyJDK7.zip /hbase
+[root@hadoop1 ~]# hdfs dfs -ls /hbase
+Found 9 items
+drwxr-xr-x - hbase hbase 0 2015-09-07 15:05 /hbase/.tmp
+-rw-r--r-- 3 hbase hbase 7426 2015-09-21 16:47 /hbase/UnlimitedJCEPolicyJDK7.zip
+drwxr-xr-x - hbase hbase 0 2015-09-18 15:51 /hbase/WALs
+drwxr-xr-x - hbase hbase 0 2015-09-17 21:59 /hbase/archive
+drwxr-xr-x - hbase hbase 0 2015-06-24 17:36 /hbase/corrupt
+drwxr-xr-x - hbase hbase 0 2015-09-07 15:05 /hbase/data
+-rw-r--r-- 3 hbase hbase 42 2015-04-02 16:01 /hbase/hbase.id
+-rw-r--r-- 3 hbase hbase 7 2015-04-02 16:01 /hbase/hbase.version
+drwxr-xr-x - hbase hbase 0 2015-09-18 15:51 /hbase/oldWALs
+可见，在获取了hdfs@GUIZHOU的credentials之后，我们可以直接以hbase@GUIZHOU.COM这个principal来访问HDFS，即使此时的Linux账户不是hbase。
+
+注意：不要试图使用sudo -u hbase xxx来以hbase的身份操作HDFS，那样反而不行。
+
+[root@hadoop1 ~]# sudo -u hbase hdfs dfs -ls /hbase
+15/09/21 16:51:24 WARN security.UserGroupInformation: PriviledgedActionException as:hbase (auth:KERBEROS) cause:javax.security.sasl.SaslException: GSS initiate failed [Caused by GSSException: No valid credentials provided (Mechanism level: Failed to find any Kerberos tgt)]
+15/09/21 16:51:24 WARN ipc.Client: Exception encountered while connecting to the server : javax.security.sasl.SaslException: GSS initiate failed [Caused by GSSException: No valid credentials provided (Mechanism level: Failed to find any Kerberos tgt)]
+15/09/21 16:51:24 WARN security.UserGroupInformation: PriviledgedActionException as:hbase (auth:KERBEROS) cause:java.io.IOException: javax.security.sasl.SaslException: GSS initiate failed [Caused by GSSException: No valid credentials provided (Mechanism level: Failed to find any Kerberos tgt)]
+ls: Failed on local exception: java.io.IOException: javax.security.sasl.SaslException: GSS initiate failed [Caused by GSSException: No valid credentials provided (Mechanism level: Failed to find any Kerberos tgt)]; Host Details : local host is: "hadoop1.com/59.215.222.3"; destination host is: "hadoop5.com":8020;
+
+以hbase@GUIZHOU.COM来提交YARN Job
+接着上面的第1点（在rootLinux账户下，且已经取得了hbase@GUIZHOU.COM的credentials），我们继续:
+[root@hadoop1 spark]# ./submit.sh
+15/09/21 17:03:19 INFO SecurityManager: Changing view acls to: root
+15/09/21 17:03:19 INFO SecurityManager: Changing modify acls to: root
+15/09/21 17:03:19 INFO SecurityManager: SecurityManager: authentication disabled; ui acls disabled; users with view permissions: Set(root); users with modify permissions: Set(root)
+
+
+6. 长时间运行的Job怎样应对ticket expire的问题
+
+参考 Configuring YARN for Long-running Applications
+
+给我写信
+GitHub
