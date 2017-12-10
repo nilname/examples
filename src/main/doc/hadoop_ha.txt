@@ -1,0 +1,727 @@
+一、理论基础
+
+( 一) 　HA 概念以及作用
+　　HA(High Available), 高可用性群集，是保证业务连续性的有效解决方案，一般有两个或两个以上的节点，且分为活动节点及备用节点。通常把正在执行业务的称为活动节点，而作为活动节点的一个备份的则称为备用节点。当活动节点出现问题，导致正在运行的业务（任务）不能正常运行时，备用节点此时就会侦测到，并立即接续活动节点来执行业务。从而实现业务的不中断或短暂中断。
+
+(二)　HDFS概述
+基础架构
+
+1、NameNode（Master）
+
+1)命名空间管理：命名空间支持对HDFS中的目录、文件和块做类似文件系统的创建、修改、删除、列表文件和目录等基本操作。
+
+2)块存储管理。
+
+NameNode+HA架构
+
+这里写图片描述
+
+　　从上面的架构图可以看出，使用Active NameNode，Standby NameNode 两个节点可以解决单点问题，两个节点通过JounalNode共享状态，通过ZKFC 选举Active ，监控状态，自动备份。
+
+1、Active NameNode
+
+　　接受client的RPC请求并处理，同时写自己的Editlog和共享存储上的Editlog，接收DataNode的Block report, block location updates和heartbeat。
+
+2、Standby NameNode
+
+　　同样会接到来自DataNode的Block report, block location updates和heartbeat，同时会从共享存储的Editlog上读取并执行这些log操作，保持自己NameNode中的元数据（Namespcae information + Block locations map）和Active NameNode中的元数据是同步的。所以说Standby模式的NameNode是一个热备（Hot Standby NameNode），一旦切换成Active模式，马上就可以提供NameNode服务。
+
+3、JounalNode
+
+　　用于Active NameNode ， Standby NameNode 同步数据，本身由一组JounnalNode节点组成，该组节点奇数个。
+
+4、ZKFC
+
+　　监控NameNode进程，自动备份。
+
+(三)　YARN概述
+基础架构
+
+1、ResourceManager(RM)
+
+　　接收客户端任务请求，接收和监控NodeManager(NM)的资源情况汇报，负责资源的分配与调度，启动和监控ApplicationMaster(AM)。
+
+2、NodeManager
+
+　　节点上的资源管理，启动Container运行task计算，上报资源、container情况汇报给RM和任务处理情况汇报给AM。
+
+3、ApplicationMaster
+
+　　单个Application(Job)的task管理和调度，向RM进行资源的申请，向NM发出launch Container指令，接收NM的task处理状态信息。
+
+4、Web Application Proxy
+
+　　用于防止Yarn遭受Web攻击，本身是ResourceManager的一部分，可通过配置独立进程。ResourceManager Web的访问基于守信用户，当Application Master运行于一个非受信用户，其提供给ResourceManager的可能是非受信连接，Web Application Proxy可以阻止这种连接提供给RM。
+
+5、Job History Server
+
+　　NodeManager在启动的时候会初始化LogAggregationService服务, 该服务会在把本机执行的container log (在container结束的时候)收集并存放到hdfs指定的目录下. ApplicationMaster会把jobhistory信息写到hdfs的jobhistory临时目录下, 并在结束的时候把jobhisoty移动到最终目录, 这样就同时支持了job的recovery.History会启动web和RPC服务, 用户可以通过网页或RPC方式获取作业的信息。
+
+ResourceManager+HA架构
+
+这里写图片描述
+
+　　ResourceManager HA 由一对Active，Standby结点构成，通过RMStateStore存储内部数据和主要应用的数据及标记。
+
+二、集群规划
+
+主机规划
+主机名	IP	安装的软件	运行的进程
+cs0	192.168.80.128	jdk1.7、hadoop、zookeeper	NameNode、ResourceManager、JournalNode、QuorumPeerMain、DFSZKFailoverController(zkfc)
+cs1	192.168.80.129	jdk1.7、hadoop、zookeeper	NameNode、ResourceManager、JournalNode、QuorumPeerMain、DFSZKFailoverController(zkfc)
+cs2	192.168.80.130	jdk1.7、hadoop、zookeeper	DataNode、NodeManager、JournalNode、QuorumPeerMain
+cs3	192.168.80.131	jdk1.7、hadoop、zookeeper	DataNode、NodeManager、JournalNode、QuorumPeerMain
+cs4	192.168.80.132	jdk1.7、hadoop、zookeeper	DataNode、NodeManager、JournalNode、QuorumPeerMain
+备注：Journalnode和ZooKeeper保持奇数个，这点大家要有个概念，最少不少于 3 个节点。
+
+目录规划
+名称	路径
+所有软件目录	/home/hadoop/app/
+所有数据和日志目录	/home/hadoop/data/
+三、集群安装前的环境检查
+
+时钟同步
+所有节点的系统时间要与当前时间保持一致。
+
+查看当前系统时间
+
+[html] view plain copy
+[root@cs0 ~]# date
+Sun Apr 24 04:52:48 PDT 2016
+如果系统时间与当前时间不一致,进行以下操作。
+[html] view plain copy
+[root@cs0 ~]# cd /usr/share/zoneinfo/
+[root@cs0 zoneinfo]# ls     //找到Asia
+[root@cs0 zoneinfo]# cd Asia/       //进入Asia目录
+[root@cs0 Asia]# ls     //找到Shanghai
+[root@cs0 Asia]# cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime        //当前时区替换为上海
+我们可以同步当前系统时间和日期与NTP（网络时间协议）一致。
+
+[html] view plain copy
+[root@cs0 Asia]# yum install ntp   //如果ntp命令不存在，在线安装ntp
+[root@cs0 Asia]# ntpdate pool.ntp.org       //执行此命令同步日期时间
+[root@cs0 Asia]# date       //查看当前系统时间
+hosts文件检查
+所有节点的hosts文件都要配置静态ip与hostname之间的对应关系。
+
+[html] view plain copy
+[root@cs0 ~]# vi /etc/hosts
+192.168.80.128 cs0
+192.168.80.129 cs1
+192.168.80.130 cs2
+192.168.80.131 cs3
+192.168.80.132 cs4
+
+禁用防火墙
+所有节点的防火墙都要关闭。
+
+查看防火墙状态
+
+[html] view plain copy
+[root@cs0 ~]# service iptables status
+iptables: Firewall is not running.
+如果不是上面的关闭状态，则需要关闭防火墙。
+
+[html] view plain copy
+[root@cs0 ~]#  chkconfig iptables off      //永久关闭防火墙
+[root@cs0 ~]#  service iptables stop
+四、 配置SSH免密码通信
+
+[html] view plain copy
+hadoop@cs0 ~]$ mkdir .ssh
+[hadoop@cs0 ~]$ ssh-keygen -t rsa     //执行命令一路回车，生成秘钥
+[hadoop@cs0 ~]$cd .ssh
+[hadoop@cs0 .ssh]$ ls
+authorized_keys  id_rsa  id_rsa.pub  known_hosts
+[hadoop@cs0 .ssh]$ cat id_rsa.pub >> authorized_keys       //将公钥保存到authorized_keys认证文件中
+
+集群所有节点都要行上面的操作。
+将所有节点中的共钥id_ras.pub拷贝到djt11中的authorized_keys文件中。
+cat ~/.ssh/id_rsa.pub | ssh hadoop@cs0 'cat >> ~/.ssh/authorized_keys'
+
+所有节点都需要执行这条命令
+
+然后将cs0中的authorized_keys文件分发到所有节点上面。
+
+[html] view plain copy
+scp -r authorized_keys hadoop@cs1:~/.ssh/
+
+scp -r authorized_keys hadoop@cs2:~/.ssh/
+
+scp -r authorized_keys hadoop@cs3:~/.ssh/
+
+scp -r authorized_keys hadoop@cs45:~/.ssh/
+五、脚本工具的使用
+
+在cs0节点上创建/home/hadoop/tools目录。
+
+[html] view plain copy
+[hadoop@cs0 ~]$ mkdir /home/hadoop/tools
+
+[hadoop@cs0 ~]$cd /home/hadoop/tools
+在/home/hadoop/tools分别建立以下脚本文件。
+
+[hadoop@cs0 tools]$ vim deploy.conf
+
+[html] view plain copy
+cs0,all,namenode,zookeeper,resourcemanager,
+cs1,all,slave,namenode,zookeeper,resourcemanager,
+cs2,all,slave,datanode,zookeeper,
+cs3,all,slave,datanode,zookeeper,
+cs4,all,slave,datanode,zookeeper,
+[hadoop@cs0 tools]$ vim deploy.sh
+
+[plain] view plain copy
+#!/bin/bash
+#set -x
+
+if [ $# -lt 3 ]
+then
+  echo "Usage: ./deply.sh srcFile(or Dir) descFile(or Dir) MachineTag"
+  echo "Usage: ./deply.sh srcFile(or Dir) descFile(or Dir) MachineTag confFile"
+  exit
+fi
+
+src=$1
+dest=$2
+tag=$3
+if [ 'a'$4'a' == 'aa' ]
+then
+  confFile=/home/hadoop/tools/deploy.conf
+else
+  confFile=$4
+fi
+
+if [ -f $confFile ]
+then
+  if [ -f $src ]
+  then
+    for server in `cat $confFile|grep -v '^#'|grep ','$tag','|awk -F',' '{print $1}'`
+    do
+       scp $src $server":"${dest}
+    done
+  elif [ -d $src ]
+  then
+    for server in `cat $confFile|grep -v '^#'|grep ','$tag','|awk -F',' '{print $1}'`
+    do
+       scp -r $src $server":"${dest}
+    done
+  else
+      echo "Error: No source file exist"
+  fi
+
+else
+  echo "Error: Please assign config file or run deploy.sh command with deploy.conf in same directory"
+fi
+[hadoop@cs0 tools]$ vim runRemoteCmd.sh
+
+[plain] view plain copy
+#!/bin/bash
+#set -x
+
+if [ $# -lt 2 ]
+then
+  echo "Usage: ./runRemoteCmd.sh Command MachineTag"
+  echo "Usage: ./runRemoteCmd.sh Command MachineTag confFile"
+  exit
+fi
+
+cmd=$1
+tag=$2
+if [ 'a'$3'a' == 'aa' ]
+then
+
+  confFile=/home/hadoop/tools/deploy.conf
+else
+  confFile=$3
+fi
+
+if [ -f $confFile ]
+then
+    for server in `cat $confFile|grep -v '^#'|grep ','$tag','|awk -F',' '{print $1}'`
+    do
+       echo "*******************$server***************************"
+       ssh $server "source /etc/profile; $cmd"
+    done
+else
+  echo "Error: Please assign config file or run deploy.sh command with deploy.conf in same directory"
+fi
+查看已经建立的文件
+
+[html] view plain copy
+[hadoop@cs0 tools]$ ls
+deploy.conf  deploy.sh  runRemoteCmd.sh
+如果我们想直接使用脚本，还需要给脚本添加执行权限。
+
+[html] view plain copy
+[hadoop@cs0 tools]$ chmod u+x deploy.sh
+[hadoop@cs0 tools]$ chmod u+x runRemoteCmd.sh
+同时我们需要将/home/hadoop/tools目录配置到PATH路径中。
+
+[html] view plain copy
+[hadoop@cs0 tools]$ su root
+Password:
+[root@cs0 tools]# vi /etc/profile
+PATH=/home/hadoop/tools:$PATH
+export PATH
+我们在cs0节点上，通过runRemoteCmd.sh脚本，一键创建所有节点的软件安装目录/home/hadoop/app。
+
+[html] view plain copy
+[hadoop@cs0 tools]$ runRemoteCmd.sh "mkdir /home/hadoop/app" all
+我们可以在所有节点查看到/home/hadoop/app目录已经创建成功。
+
+六、jdk安装
+
+将本地下载好的jdk1.7,上传至cs0节点下的/home/hadoop/app目录。
+
+[html] view plain copy
+[root@cs0 tools]# su hadoop
+[hadoop@cs0 tools]$ cd /home/hadoop/app/
+[hadoop@cs0 app]$ rz       //选择本地的下载好的jdk-7u79-linux-x64.tar.gz
+[hadoop@cs0 app]$ ls
+jdk-7u79-linux-x64.tar.gz
+[hadoop@cs0 app]$ tar -zxvf jdk-7u79-linux-x64.tar.gz      //解压
+[hadoop@cs0 app]$ ls
+jdk1.7.0_79 jdk-7u79-linux-x64.tar.gz
+[hadoop@cs0 app]$ rm jdk-7u79-linux-x64.tar.gz     //删除安装包
+添加jdk环境变量。
+
+[html] view plain copy
+[hadoop@cs0 app]$ su root
+Password:
+[root@cs0 app]# vi /etc/profile
+JAVA_HOME=/home/hadoop/app/jdk1.7.0_79
+CLASSPATH=.:$JAVA_HOME/lib/dt.jar:$JAVA_HOME/lib/tools.jar
+PATH=$JAVA_HOME/bin:$PATH
+export JAVA_HOME CLASSPATH PATH
+[root@cs0 app]# source /etc/profile     //使配置文件生效
+查看jdk是否安装成功。
+
+[html] view plain copy
+[root@cs0 app]# java -version
+java version "1.7.0_79"
+Java(TM) SE Runtime Environment (build 1.7.0_79-b15)
+Java HotSpot(TM) 64-Bit Server VM (build 24.79-b02, mixed mode)
+出现以上结果就说明cs0节点上的jdk安装成功。
+
+然后将cs0下的jdk安装包复制到其他节点上。
+
+[hadoop@cs0 app]$ deploy.sh jdk1.7.0_79 /home/hadoop/app/slave
+
+cs1,cs2,cs3,cs4节点重复cs0节点上的jdk配置即可。
+
+七、Zookeeper安装
+
+将本地下载好的zookeeper-3.4.6.tar.gz安装包，上传至cs0节点下的/home/hadoop/app目录下。
+
+[html] view plain copy
+[hadoop@cs0 app]$ ls
+jdk1.7.0_79 zookeeper-3.4.6.tar.gz
+[hadoop@cs0 app]$ tar zxvf zookeeper-3.4.6.tar.gz      //解压
+[hadoop@cs0 app]$ ls
+jdk1.7.0_79 zookeeper-3.4.6.tar.gz zookeeper-3.4.6
+[hadoop@cs0 app]$ rm zookeeper-3.4.6.tar.gz        //删除zookeeper-3.4.6.tar.gz安装包
+[hadoop@cs0 app]$ mv zookeeper-3.4.6 zookeeper     //重命名
+修改Zookeeper中的配置文件。
+
+[html] view plain copy
+[hadoop@cs0 app]$ cd /home/hadoop/app/zookeeper/conf/
+[hadoop@cs0 conf]$ ls
+configuration.xsl  log4j.properties  zoo_sample.cfg
+[hadoop@cs0 conf]$ cp zoo_sample.cfg zoo.cfg       //复制一个zoo.cfg文件
+[hadoop@cs0 conf]$ vi zoo.cfg
+dataDir=/home/hadoop/data/zookeeper/zkdata      //数据文件目录
+dataLogDir=/home/hadoop/data/zookeeper/zkdatalog        //日志目录
+# the port at which the clients will connect
+clientPort=2181
+//server.服务编号=主机名称：Zookeeper不同节点之间同步和通信的端口：选举端口（选举leader）
+server.0=cs0:2888:3888
+server.1=cs1:2888:3888
+server.2=cs2:2888:3888
+server.3=cs3:2888:3888
+server.4=cs4:2888:3888
+通过远程命令deploy.sh将Zookeeper安装目录拷贝到其他节点上面。
+
+[html] view plain copy
+[hadoop@cs0 app]$ deploy.sh zookeeper /home/hadoop/app  slave
+通过远程命令runRemoteCmd.sh在所有的节点上面创建目录：
+
+[html] view plain copy
+[hadoop@cs0 app]$ runRemoteCmd.sh "mkdir -p /home/hadoop/data/zookeeper/zkdata" all   //创建数据目录
+[hadoop@cs0 app]$ runRemoteCmd.sh "mkdir -p /home/hadoop/data/zookeeper/zkdatalog" all   //创建日志目录
+然后分别在cs0、cs1、cs2、cs3、cs4上面，进入zkdata目录下，创建文件myid，里面的内容分别填充为：0、1、2、3、4， 这里我们以cs0为例。
+
+[html] view plain copy
+[hadoop@cs0 app]$ cd /home/hadoop/data/zookeeper/zkdata
+[hadoop@cs0 zkdata]$ vi myid
+1   //输入数字1
+配置Zookeeper环境变量。
+
+[html] view plain copy
+[hadoop@cs0  zkdata]$ su root
+Password:
+[root@cs0 zkdata]# vi /etc/profile
+JAVA_HOME=/home/hadoop/app/jdk1.7.0_79
+ZOOKEEPER_HOME=/home/hadoop/app/zookeeper
+CLASSPATH=.:$JAVA_HOME/lib/dt.jar:$JAVA_HOME/lib/tools.jar
+PATH=$JAVA_HOME/bin:$ZOOKEEPER_HOME/bin:$PATH
+export JAVA_HOME CLASSPATH PATH ZOOKEEPER_HOME
+[root@cs0 zkdata]# source /etc/profile      //使配置文件生效
+在cs0节点上面启动Zookeeper。
+
+[html] view plain copy
+[hadoop@cs0 zkdata]$ cd /home/hadoop/app/zookeeper/
+[hadoop@cs0 zookeeper]$ bin/zkServer.sh start
+[hadoop@cs0 zookeeper]$ jps
+3633 QuorumPeerMain
+[hadoop@cs0 zookeeper]$ bin/zkServer.sh stop       //关闭Zookeeper
+使用runRemoteCmd.sh 脚本，启动所有节点上面的Zookeeper。
+
+[html] view plain copy
+runRemoteCmd.sh "/home/hadoop/app/zookeeper/bin/zkServer.sh start" zookeeper
+查看所有节点上面的QuorumPeerMain进程是否启动。
+
+[html] view plain copy
+runRemoteCmd.sh "jps" zookeeper
+查看所有Zookeeper节点状态。
+
+[html] view plain copy
+runRemoteCmd.sh "/home/hadoop/app/zookeeper/bin/zkServer.sh status" zookeeper
+如果一个节点为leader，另四个节点为follower，则说明Zookeeper安装成功。
+
+八、hadoop集群环境搭建
+
+将下载好的apache hadoop-2.6.0.tar.gz安装包，上传至cs0节点下的/home/hadoop/app目录下
+
+[html] view plain copy
+[hadoop@cso0 app]$ ls
+hadoop-2.6.0.tar.gz jdk1.7.0_79  zookeeper
+[hadoop@cso0 app]$ tar zxvf hadoop-2.6.0.tar.gz        //解压
+[hadoop@cso0 app]$ ls
+hadoop-2.6.0 hadoop-2.6.0.tar.gz jdk1.7.0_79  zookeeper
+[hadoop@cso0 app]$ rm hadoop-2.6.0.tar.gz      //删除安装包
+[hadoop@cso0 app]$ mv hadoop-2.6.0 hadoop      //重命名
+切换到/home/hadoop/app/hadoop/etc/hadoop/目录下，修改配置文件。
+
+[html] view plain copy
+[hadoop@cso0 app]$ cd /home/hadoop/app/hadoop/etc/hadoop/
+配置HDFS
+
+配置hadoop-env.sh
+
+[html] view plain copy
+[hadoop@cs0 hadoop]$ vi hadoop-env.sh
+export JAVA_HOME=/home/hadoop/app/jdk1.7.0_79
+配置core-site.xml
+
+[html] view plain copy
+[hadoop@cs0 hadoop]$ vi core-site.xml
+<configuration>
+    <property>
+        <name>fs.defaultFS</name>
+        <value>hdfs://cluster1</value>
+    </property>
+    < 这里的值指的是默认的HDFS路径 ，取名为cluster1>
+    <property>
+        <name>hadoop.tmp.dir</name>
+        <value>/home/hadoop/data/hadoop_${user.name}</value>
+    </property>
+    < hadoop的临时目录，如果需要配置多个目录，需要逗号隔开，data目录需要我们自己创建>
+    <property>
+        <name>ha.zookeeper.quorum</name>
+        <value>cs0:2181,cs1:2:2181,cs2:2181,cs3:2181,cs4:2181</value>
+    </property>
+    < 配置Zookeeper 管理HDFS>
+</configuration>
+配置hdfs-site.xml
+
+[hadoop@cs0 hadoop]$ vi hdfs-site.xml
+
+[html] view plain copy
+<configuration>
+    <property>
+        <name>dfs.replication</name>
+        <value>3</value>
+    </property>
+    < 数据块副本数为3>
+    <property>
+        <name>dfs.permissions</name>
+        <value>false</value>
+    </property>
+    <property>
+        <name>dfs.permissions.enabled</name>
+        <value>false</value>
+    </property>
+    < 权限默认配置为false>
+    <property>
+        <name>dfs.nameservices</name>
+        <value>cluster1</value>
+    </property>
+    < 命名空间，它的值与fs.defaultFS的值要对应，namenode高可用之后有两个namenode，cluster1是对外提供的统一入口>
+    <property>
+        <name>dfs.ha.namenodes.cluster1</name>
+        <value>cs0,cs1</value>
+    </property>
+    < 指定 nameService 是 cluster1 时的nameNode有哪些，这里的值也是逻辑名称，名字随便起，相互不重复即可>
+    <property>
+        <name>dfs.namenode.rpc-address.cluster1.cs0</name>
+        <value>cs0:9000</value>
+    </property>
+    <cs0 rpc地址>
+    <property>
+        <name>dfs.namenode.http-address.cluster1.cs0</name>
+        <value>cs0:50070</value>
+    </property>
+    < cs0 http地址>
+    <property>
+        <name>dfs.namenode.rpc-address.cluster1.cs1</name>
+        <value>cs1:9000</value>
+    </property>
+    < cs1 rpc地址>
+    <property>
+        <name>dfs.namenode.http-address.cluster1.cs1</name>
+        <value>cs1:50070</value>
+    </property>
+    < cs1 http地址>
+    <property>
+        <name>dfs.ha.automatic-failover.enabled</name>
+        <value>true</value>
+    </property>
+    < 启动故障自动恢复>
+    <property>
+        <name>dfs.namenode.shared.edits.dir</name>
+        <value>qjournal://cs0:8485;cs1:8485;cs2:8485;cs3:8485;cs4:8485/cluster1</value>
+    </property>
+    < 指定journal>
+    <property>
+        <name>dfs.client.failover.proxy.provider.cluster1</name>
+        <value>org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider</value>
+    </property>
+    < 指定 cluster1 出故障时，哪个实现类负责执行故障切换>
+    <property>
+        <name>dfs.journalnode.edits.dir</name>
+        <value>/home/hadoop/data/journaldata/jn</value>
+    </property>
+    < 指定JournalNode集群在对nameNode的目录进行共享时，自己存储数据的磁盘路径 >
+    <property>
+        <name>dfs.ha.fencing.methods</name>
+        <value>shell(/bin/true)</value>
+    </property>
+    <property>
+        <name>dfs.ha.fencing.ssh.private-key-files</name>
+        <value>/home/hadoop/.ssh/id_rsa</value>
+    </property>
+    <property>
+        <name>dfs.ha.fencing.ssh.connect-timeout</name>
+        <value>10000</value>
+    </property>
+    < 脑裂默认配置>
+    <property>
+        <name>dfs.namenode.handler.count</name>
+        <value>100</value>
+    </property>
+</configuration>
+配置 slave
+
+[html] view plain copy
+[hadoop@djt11 hadoop]$ vi slaves
+cs2
+cs3
+cs4
+向所有节点分发hadoop安装包。
+
+[html] view plain copy
+[hadoop@cs0 app]$ deploy.sh hadoop /home/hadoop/app/ slave
+hdfs配置完毕后启动顺序
+
+1、启动所有节点上面的Zookeeper进程
+
+[html] view plain copy
+[hadoop@cs0 hadoop]$ runRemoteCmd.sh "/home/hadoop/app/zookeeper/bin/zkServer.sh start" zookeeper
+2、启动所有节点上面的journalnode进程
+
+[html] view plain copy
+[hadoop@cs0 hadoop]$ runRemoteCmd.sh "/home/hadoop/app/hadoop/sbin/hadoop-daemon.sh start journalnode" all
+3、首先在主节点上(比如,cs0)执行格式化
+
+[html] view plain copy
+[hadoop@cs0 hadoop]$ bin/hdfs namenode -format / /namenode 格式化
+[hadoop@cs0  hadoop]$ bin/hdfs zkfc -formatZK //格式化高可用
+[hadoop@cs0 hadoop]$bin/hdfs namenode //启动namenode
+4、与此同时，需要在备节点（比如，cs1）上执行数据同步
+
+[html] view plain copy
+[hadoop@cs1 hadoop]$ bin/hdfs namenode -bootstrapStandby   //同步主节点和备节点之间的元数据
+5、cs1同步完数据后，紧接着在cs0节点上，按下ctrl+c来结束namenode进程。 然后关闭所有节点上面的journalnode进程
+
+[html] view plain copy
+[hadoop@cs0 hadoop]$ runRemoteCmd.sh "/home/hadoop/app/hadoop/sbin/hadoop-daemon.sh stop journalnode" all  //然后停掉各节点的journalnode
+备注：可以使用
+[hadoop@cs0 hadoop]$ sbin/hadoop-daemon.sh start zkfc   单独启动一个zkfc进程
+6、如果上面操作没有问题，我们可以一键启动hdfs所有相关进程
+
+[hadoop@cs0 hadoop]$ sbin/start-dfs.sh
+
+启动成功之后，关闭其中一个namenode ，然后在启动namenode 观察切换的状况。
+
+7、验证是否启动成功
+
+通过web界面查看namenode启动情况。
+
+http://cs0:50070
+http://cs1:50070
+
+上传文件至hdfs
+
+[html] view plain copy
+[hadoop@cs0 hadoop]$ vi test.txt   //本地创建一个test.txt文件
+hadoop  appache
+hadoop ywendeng
+hadoop tomcat
+[hadoop@cs0  hadoop]$ hdfs dfs -mkdir /test   //在hdfs上创建一个文件目录
+[hadoop@cs0 hadoop]$ hdfs dfs -put test.txt  /test     //向hdfs上传一个文件
+[hadoop@cso hadoop]$ hdfs dfs -ls /test    //查看test.txt是否上传成功
+如果上面操作没有问题说明hdfs配置成功。
+
+YARN安装配置
+
+配置mapred-site.xml
+
+[html] view plain copy
+[hadoop@cs0 hadoop]$ vi mapred-site.xml
+<configuration>
+    <property>
+        <name>mapreduce.framework.name</name>
+        <value>yarn</value>
+    </property>
+    <指定运行mapreduce的环境是Yarn，与hadoop1不同的地方>
+</configuration>
+配置yarn-site.xml
+
+[html] view plain copy
+[hadoop@cs0 hadoop]$ vi yarn-site.xml
+<configuration>
+<property>
+    <name>yarn.resourcemanager.connect.retry-interval.ms</name>
+    <value>2000</value>
+</property>
+< 超时的周期>
+<property>
+    <name>yarn.resourcemanager.ha.enabled</name>
+    <value>true</value>
+</property>
+< 打开高可用>
+<property>
+    <name>yarn.resourcemanager.ha.automatic-failover.enabled</name>
+    <value>true</value>
+</property>
+<启动故障自动恢复>
+<property>
+    <name>yarn.resourcemanager.ha.automatic-failover.embedded</name>
+    <value>true</value>
+</property>
+
+<property>
+    <name>yarn.resourcemanager.cluster-id</name>
+    <value>yarn-rm-cluster</value>
+</property>
+<给yarn cluster 取个名字yarn-rm-cluster>
+<property>
+    <name>yarn.resourcemanager.ha.rm-ids</name>
+    <value>rm1,rm2</value>
+</property>
+<给ResourceManager 取个名字 rm1,rm2>
+<property>
+    <name>yarn.resourcemanager.hostname.rm1</name>
+    <value>cs0</value>
+</property>
+<配置ResourceManager rm1 hostname>
+<property>
+    <name>yarn.resourcemanager.hostname.rm2</name>
+    <value>cs1</value>
+</property>
+<配置ResourceManager rm2 hostname>
+<property>
+    <name>yarn.resourcemanager.recovery.enabled</name>
+    <value>true</value>
+</property>
+<启用resourcemanager 自动恢复>
+<property>
+    <name>yarn.resourcemanager.zk.state-store.address</name>
+    <value>cs0:2181,cs1:2181,cs2:2181,cs3:2181,cs4:2181</value>
+</property>
+<配置Zookeeper地址>
+<property>
+    <name>yarn.resourcemanager.zk-address</name>
+    <value>cs0:2181,cs1:2181,cs2:2181,cs3:2181,cs4:2181</value>
+</property>
+<配置Zookeeper地址>
+<property>
+    <name>yarn.resourcemanager.address.rm1</name>
+    <value>cs0:8032</value>
+</property>
+< rm1端口号>
+<property>
+    <name>yarn.resourcemanager.scheduler.address.rm1</name>
+    <value>cs0:8034</value>
+</property>
+< rm1调度器的端口号>
+<property>
+    <name>yarn.resourcemanager.webapp.address.rm1</name>
+    <value>cs0:8088</value>
+</property>
+< rm1 webapp端口号>
+<property>
+    <name>yarn.resourcemanager.address.rm2</name>
+    <value>cs1:8032</value>
+</property>
+< rm2端口号>
+<property>
+    <name>yarn.resourcemanager.scheduler.address.rm2</name>
+    <value>cs1:8034</value>
+</property>
+< rm2调度器的端口号>
+<property>
+    <name>yarn.resourcemanager.webapp.address.rm2</name>
+    <value>cs1:8088</value>
+</property>
+< rm2 webapp端口号>
+<property>
+    <name>yarn.nodemanager.aux-services</name>
+    <value>mapreduce_shuffle</value>
+</property>
+<property>
+    <name>yarn.nodemanager.aux-services.mapreduce_shuffle.class</name>
+    <value>org.apache.hadoop.mapred.ShuffleHandler</value>
+</property>
+<执行MapReduce需要配置的shuffle过程>
+</configuration>
+启动YARN
+
+1、在cs0节点上执行。
+
+[html] view plain copy
+[hadoop@cs0 hadoop]$ sbin/start-yarn.sh
+2、在cs1节点上面执行。
+
+[html] view plain copy
+[hadoop@cs1 hadoop]$ sbin/yarn-daemon.sh start resourcemanager
+同时打开一下web界面。
+
+[html] view plain copy
+http://cs0:8088
+http://cs1:8088
+关闭其中一个resourcemanager，然后再启动，看看这个过程的web界面变化。
+
+3、检查一下ResourceManager状态
+
+[html] view plain copy
+[hadoop@cs0 hadoop]$ bin/yarn rmadmin -getServiceState rm1
+[hadoop@cs0 hadoop]$ bin/yarn rmadmin -getServiceState rm2
+4、Wordcount示例测试
+
+[html] view plain copy
+[hadoop@cs0 hadoop]$ hadoop jar share/hadoop/mapreduce/hadoop-mapreduce-examples-2.6.0.jar wordcount /test/test.txt /test/out/
+如果上面执行没有异常，说明YARN安装成功。
+
+至此，hadoop 分布式集群搭建完毕。

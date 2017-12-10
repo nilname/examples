@@ -156,11 +156,253 @@ hadoop-daemon.sh start namenode
 2) hadoop-daemon.sh start datanode
 
 
-在 RM1 启动 YARN	master5	start-yarn.sh	ResourceManager(master5)
-NodeManager(slave节点)
-8	在 RM2 单独启动 YARN	master52	yarn-daemon.sh start resourcemanager	ResourceManager
-9	启动 ZKFC	master5 与 master52	hadoop-daemon.sh start zkfc	DFSZKFailoverController
-10	开启历史日志服务	master5	mr-jobhistory-daemon.sh start historyserver	JobHistoryServer
-11	启动主 HMaster 和 HRegionServer	master5	start-hbase.sh	HMaster (master5上)
+在 RM1 启动 YARN	master5
+start-yarn.sh
+8	在 RM2 单独启动 YARN	master52
+yarn-daemon.sh start resourcemanager
+9	启动 ZKFC	master5 与 master52
+hadoop-daemon.sh start zkfc
+10	开启历史日志服务	master5
+mr-jobhistory-daemon.sh start historyserver
+11	启动主 HMaster 和 HRegionServer	master5
+start-hbase.sh	HMaster (master5上)
 HRegionServer (slave节点上)
-12	启动备份 HMaster	master52	hbase-daemon.sh start master	HMaster
+12	启动备份 HMaster	master52
+hbase-daemon.sh start master
+
+
+
+///////////////////////
+
+
+假如我们只有3台linux虚拟机，主机名分别为hadoop01、hadoop02和hadoop03，在这3台机器上，hadoop集群的部署情况如下：
+
+hadoop01：1个namenode，1个datanode，1个journalnode，1个zkfc，1个resourcemanager，1个nodemanager；
+
+hadoop02：1个namenode，1个datanode，1个journalnode，1个zkfc，1个resourcemanager，1个nodemanager；
+
+hadoop03：1个datenode，1个journalnode，1个nodemanager；
+
+
+下面我们来介绍启动hdfs和yarn的一些命令。
+
+
+
+1.启动hdfs集群（使用hadoop的批量启动脚本）
+
+/root/apps/hadoop/sbin/start-dfs.sh
+复制代码
+[root@hadoop01 ~]# /root/apps/hadoop/sbin/start-dfs.sh
+Starting namenodes on [hadoop01 hadoop02]
+hadoop01: starting namenode, logging to /root/apps/hadoop/logs/hadoop-root-namenode-hadoop01.out
+hadoop02: starting namenode, logging to /root/apps/hadoop/logs/hadoop-root-namenode-hadoop02.out
+hadoop03: starting datanode, logging to /root/apps/hadoop/logs/hadoop-root-datanode-hadoop03.out
+hadoop02: starting datanode, logging to /root/apps/hadoop/logs/hadoop-root-datanode-hadoop02.out
+hadoop01: starting datanode, logging to /root/apps/hadoop/logs/hadoop-root-datanode-hadoop01.out
+Starting journal nodes [hadoop01 hadoop02 hadoop03]
+hadoop03: starting journalnode, logging to /root/apps/hadoop/logs/hadoop-root-journalnode-hadoop03.out
+hadoop02: starting journalnode, logging to /root/apps/hadoop/logs/hadoop-root-journalnode-hadoop02.out
+hadoop01: starting journalnode, logging to /root/apps/hadoop/logs/hadoop-root-journalnode-hadoop01.out
+Starting ZK Failover Controllers on NN hosts [hadoop01 hadoop02]
+hadoop01: starting zkfc, logging to /root/apps/hadoop/logs/hadoop-root-zkfc-hadoop01.out
+hadoop02: starting zkfc, logging to /root/apps/hadoop/logs/hadoop-root-zkfc-hadoop02.out
+[root@hadoop01 ~]#
+复制代码
+从上面的启动日志可以看出，start-dfs.sh这个启动脚本是通过ssh对多个节点的namenode、datanode、journalnode以及zkfc进程进行批量启动的。
+
+
+
+2.停止hdfs集群（使用hadoop的批量启动脚本）
+
+/root/apps/hadoop/sbin/stop-dfs.sh
+复制代码
+[root@hadoop01 ~]# /root/apps/hadoop/sbin/stop-dfs.sh
+Stopping namenodes on [hadoop01 hadoop02]
+hadoop02: stopping namenode
+hadoop01: stopping namenode
+hadoop02: stopping datanode
+hadoop03: stopping datanode
+hadoop01: stopping datanode
+Stopping journal nodes [hadoop01 hadoop02 hadoop03]
+hadoop03: stopping journalnode
+hadoop02: stopping journalnode
+hadoop01: stopping journalnode
+Stopping ZK Failover Controllers on NN hosts [hadoop01 hadoop02]
+hadoop01: stopping zkfc
+hadoop02: stopping zkfc
+[root@hadoop01 ~]#
+复制代码
+3.启动单个进程
+
+[root@hadoop01 ~]# /root/apps/hadoop/sbin/hadoop-daemon.sh start namenode
+starting namenode, logging to /root/apps/hadoop/logs/hadoop-root-namenode-hadoop01.out
+[root@hadoop02 ~]# /root/apps/hadoop/sbin/hadoop-daemon.sh start namenode
+starting namenode, logging to /root/apps/hadoop/logs/hadoop-root-namenode-hadoop02.out
+[root@hadoop01 ~]# /root/apps/hadoop/sbin/hadoop-daemon.sh start datanode
+starting datanode, logging to /root/apps/hadoop/logs/hadoop-root-datanode-hadoop01.out
+[root@hadoop02 ~]# /root/apps/hadoop/sbin/hadoop-daemon.sh start datanode
+starting datanode, logging to /root/apps/hadoop/logs/hadoop-root-datanode-hadoop02.out
+[root@hadoop03 apps]# /root/apps/hadoop/sbin/hadoop-daemon.sh start datanode
+starting datanode, logging to /root/apps/hadoop/logs/hadoop-root-datanode-hadoop03.out
+[root@hadoop01 ~]# /root/apps/hadoop/sbin/hadoop-daemon.sh start journalnode
+starting journalnode, logging to /root/apps/hadoop/logs/hadoop-root-journalnode-hadoop01.out
+[root@hadoop02 ~]# /root/apps/hadoop/sbin/hadoop-daemon.sh start journalnode
+starting journalnode, logging to /root/apps/hadoop/logs/hadoop-root-journalnode-hadoop02.out
+[root@hadoop03 apps]# /root/apps/hadoop/sbin/hadoop-daemon.sh start journalnode
+starting journalnode, logging to /root/apps/hadoop/logs/hadoop-root-journalnode-hadoop03.out
+[root@hadoop01 ~]# /root/apps/hadoop/sbin/hadoop-daemon.sh start zkfc
+starting zkfc, logging to /root/apps/hadoop/logs/hadoop-root-zkfc-hadoop01.out
+[root@hadoop02 ~]# /root/apps/hadoop/sbin/hadoop-daemon.sh start zkfc
+starting zkfc, logging to /root/apps/hadoop/logs/hadoop-root-zkfc-hadoop02.out
+ 分别查看启动后3台虚拟机上的进程情况：
+
+复制代码
+[root@hadoop01 ~]# jps
+6695 DataNode
+2002 QuorumPeerMain
+6879 DFSZKFailoverController
+7035 Jps
+6800 JournalNode
+6580 NameNode
+[root@hadoop01 ~]#
+复制代码
+
+
+复制代码
+[root@hadoop02 ~]# jps
+6360 JournalNode
+6436 DFSZKFailoverController
+2130 QuorumPeerMain
+6541 Jps
+6255 DataNode
+6155 NameNode
+[root@hadoop02 ~]#
+复制代码
+
+
+[root@hadoop03 apps]# jps
+5331 Jps
+5103 DataNode
+5204 JournalNode
+2258 QuorumPeerMain
+[root@hadoop03 apps]#
+
+
+3.停止单个进程
+
+复制代码
+[root@hadoop01 ~]# jps
+6695 DataNode
+2002 QuorumPeerMain
+8486 Jps
+6879 DFSZKFailoverController
+6800 JournalNode
+6580 NameNode
+[root@hadoop01 ~]#
+[root@hadoop01 ~]#
+[root@hadoop01 ~]#
+[root@hadoop01 ~]#
+[root@hadoop01 ~]# /root/apps/hadoop/sbin/hadoop-daemon.sh stop zkfc
+stopping zkfc
+[root@hadoop01 ~]# /root/apps/hadoop/sbin/hadoop-daemon.sh stop journalnode
+stopping journalnode
+[root@hadoop01 ~]# /root/apps/hadoop/sbin/hadoop-daemon.sh stop datanode
+stopping datanode
+[root@hadoop01 ~]# /root/apps/hadoop/sbin/hadoop-daemon.sh stop namenode
+stopping namenode
+[root@hadoop01 ~]# jps
+2002 QuorumPeerMain
+8572 Jps
+[root@hadoop01 ~]#
+复制代码
+
+
+复制代码
+[root@hadoop02 ~]# jps
+6360 JournalNode
+6436 DFSZKFailoverController
+2130 QuorumPeerMain
+7378 Jps
+6255 DataNode
+6155 NameNode
+[root@hadoop02 ~]# /root/apps/hadoop/sbin/hadoop-daemon.sh stop zkfc
+stopping zkfc
+[root@hadoop02 ~]# /root/apps/hadoop/sbin/hadoop-daemon.sh stop journalnode
+stopping journalnode
+[root@hadoop02 ~]# /root/apps/hadoop/sbin/hadoop-daemon.sh stop datanode
+stopping datanode
+[root@hadoop02 ~]# /root/apps/hadoop/sbin/hadoop-daemon.sh stop namenode
+stopping namenode
+[root@hadoop02 ~]# jps
+7455 Jps
+2130 QuorumPeerMain
+[root@hadoop02 ~]#
+复制代码
+
+
+复制代码
+[root@hadoop03 apps]# jps
+5103 DataNode
+5204 JournalNode
+5774 Jps
+2258 QuorumPeerMain
+[root@hadoop03 apps]# /root/apps/hadoop/sbin/hadoop-daemon.sh stop journalnode
+stopping journalnode
+[root@hadoop03 apps]# /root/apps/hadoop/sbin/hadoop-daemon.sh stop datanode
+stopping datanode
+[root@hadoop03 apps]# jps
+5818 Jps
+2258 QuorumPeerMain
+[root@hadoop03 apps]#
+复制代码
+
+
+
+
+3.启动yarn集群（使用hadoop的批量启动脚本）
+
+/root/apps/hadoop/sbin/start-yarn.sh
+
+
+复制代码
+[root@hadoop01 ~]# /root/apps/hadoop/sbin/start-yarn.sh
+starting yarn daemons
+starting resourcemanager, logging to /root/apps/hadoop/logs/yarn-root-resourcemanager-hadoop01.out
+hadoop03: starting nodemanager, logging to /root/apps/hadoop/logs/yarn-root-nodemanager-hadoop03.out
+hadoop02: starting nodemanager, logging to /root/apps/hadoop/logs/yarn-root-nodemanager-hadoop02.out
+hadoop01: starting nodemanager, logging to /root/apps/hadoop/logs/yarn-root-nodemanager-hadoop01.out
+[root@hadoop01 ~]#
+复制代码
+
+
+从上面的启动日志可以看出，start-yarn.sh启动脚本只在本地启动一个ResourceManager进程，而3台机器上的nodemanager都是通过ssh的方式启动的。所以hadoop02机器上的ResourceManager需要我们手动去启动。
+
+4.启动hadoop02上的ResourceManager进程
+
+/root/apps/hadoop/sbin/yarn-daemon.sh start resourcemanager
+
+
+
+
+ 5.停止yarn
+
+/root/apps/hadoop/sbin/stop-yarn.sh
+复制代码
+[root@hadoop01 ~]# /root/apps/hadoop/sbin/stop-yarn.sh
+stopping yarn daemons
+stopping resourcemanager
+hadoop01: stopping nodemanager
+hadoop03: stopping nodemanager
+hadoop02: stopping nodemanager
+no proxyserver to stop
+[root@hadoop01 ~]#
+复制代码
+
+
+ 通过上面的停止日志可以看出，stop-yarn.sh脚本只停止了本地的那个ResourceManager进程，所以hadoop02上的那个resourcemanager我们需要单独去停止。
+
+
+
+6.停止hadoop02上的resourcemanager
+
+/root/apps/hadoop/sbin/yarn-daemon.sh stop resourcemanager
