@@ -1,0 +1,166 @@
+
+IP	           主机名	用户名	部署模块	   进程
+10.6.3.43	master5	   hadoop5	NameNode
+ResourceManager
+HBase	NameNode
+DFSZKFailoverController
+ResourceManager
+HMaster
+JobHistoryServer
+#######################
+10.6.3.33	master52	hadoop5	NameNode
+ResourceManager
+HBase	NameNode
+DFSZKFailoverController
+ResourceManager
+HMaster
+JobHistoryServer
+#######################
+10.6.3.48	slave51	hadoop5	DataNode
+NodeManager
+Zookeeper
+HBase	DataNode
+NodeManager
+HRegionServer
+JournalNode
+QuorumPeerMain
+###########################
+10.6.3.32	slave52	hadoop5	DataNode
+NodeManager
+Zookeeper
+HBase	DataNode
+NodeManager
+HRegionServer
+JournalNode
+QuorumPeerMain
+#############################
+10.6.3.36	slave53	hadoop5	DataNode
+NodeManager
+Zookeeper
+HBase	DataNode
+NodeManager
+HRegionServer
+JournalNode
+QuorumPeerMain
+1.3 正确的启动顺序
+
+1. ZooKeeper -> Hadoop -> HBase
+
+2. ZooKeeper -> JournalNode (Hadoop) -> NameNode (Hadoop) -> DataNode (Hadoop) -> 主 ResourceManager/NodeManager (Hadoop) -> 备份 ResourceManager (Hadoop) -> ZKFC (Hadoop) -> MapReduce JobHistory (Hadoop) -> 主 Hmaster/HRegionServer (HBase) ->备份 Hmaster (HBase)
+
+二. 首次启动/格式化集群
+1. 启动 ZooKeeper 集群
+在集群中安装 ZooKeeper 的主机上启动 ZooKeeper 服务。在本教程中也就是在 slave51、slave52、slave53 的主机上启动相应进程。分别登陆到三台机子上执行：
+
+zkServer.sh start
+1
+
+2. 格式化 ZooKeeper 集群
+在任意的 namenode 上都可以执行，笔者还是选择了 master5 主机执行格式化命令
+
+hdfs zkfc –formatZK
+1
+
+3. 启动 JournalNode 集群
+分别在 slave51、slave52、slave53 上执行以下命令
+
+hadoop-daemon.sh start journalnode
+1
+
+4. 格式化集群的 NameNode
+
+在 master5 的主机上执行以下命令，以格式化 namenode：
+
+hdfs namenode -format
+1
+
+5. 启动刚格式化的 NameNode
+刚在 master5 上格式化了 namenode ，故就在 master5 上执行
+
+adoop-daemon.sh start namenode
+1
+
+6. 同步 NameNode1 元数据到 NameNode2 上
+复制你 NameNode 上的元数据目录到另一个 NameNode，也就是此处的 master5 复制元数据到 master52 上。在 master52 上执行以下命令：
+
+hdfs namenode -bootstrapStandby
+1
+
+7. 启动 NameNode2
+master52 主机拷贝了元数据之后，就接着启动 namenode 进程了，执行
+
+hadoop-daemon.sh start namenode
+1
+
+8. 启动集群中所有的DataNode
+
+在 master5 上执行
+
+hadoop-daemons.sh start datanode
+1
+
+9. 在 RM1 启动 YARN
+
+在 master5 的主机上执行以下命令：
+
+start-yarn.sh
+1
+10. 在 RM2 单独启动 YARN
+
+虽然上一步启动了 YARN ，但是在 master52 上是没有相应的 ResourceManager 进程，故需要在 master52 主机上单独启动：
+
+yarn-daemon.sh start resourcemanager
+1
+
+11. 启动 ZKFC
+
+在 master5 和 master52 的主机上分别执行如下命令：
+
+hadoop-daemon.sh start zkfc
+1
+12. 开启历史日志服务
+
+在 master5 和 master52 的主机上执行
+
+mr-jobhistory-daemon.sh   start historyserver
+1
+
+13. 启动主 HMaster
+
+在其中一台主机上启动 Hmaster，即笔者在 master5 上
+
+start-hbase.sh
+1
+
+14. 启动备份 HMaster
+另一台 Hmaster 的主机上，即笔者在 master52 上，执行以下命令
+
+hbase-daemon.sh start master
+
+
+非首次启动
+启动 ZooKeeper 集群
+zkServer.sh start
+
+启动 JournalNode 集群
+hadoop-daemon.sh start journalnode
+启动刚格式化的 NameNode
+
+hadoop-daemon.sh start namenode
+同步 NameNode1 元数据到 NameNode2 上
+hdfs namenode -bootstrapStandby
+启动 NameNode2
+hadoop-daemon.sh start namenode
+启动集群中所有的DataNode
+1) hadoop-daemons.sh start datanode
+2) hadoop-daemon.sh start datanode
+
+
+在 RM1 启动 YARN	master5	start-yarn.sh	ResourceManager(master5)
+NodeManager(slave节点)
+8	在 RM2 单独启动 YARN	master52	yarn-daemon.sh start resourcemanager	ResourceManager
+9	启动 ZKFC	master5 与 master52	hadoop-daemon.sh start zkfc	DFSZKFailoverController
+10	开启历史日志服务	master5	mr-jobhistory-daemon.sh start historyserver	JobHistoryServer
+11	启动主 HMaster 和 HRegionServer	master5	start-hbase.sh	HMaster (master5上)
+HRegionServer (slave节点上)
+12	启动备份 HMaster	master52	hbase-daemon.sh start master	HMaster
