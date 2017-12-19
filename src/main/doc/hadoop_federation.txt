@@ -1332,3 +1332,961 @@ image
     对于linux环境服务器如何准备、hadoop2.2.0在64位平台如何编译源代码、以及操作，请关注吴超沉思录，近期会推出视频教程，更加详细，更加完整，更加实用。
 
     本教程是作者一边执行步骤、一边录制脚本、一边截图、一边写文档，非常耗费精力，花费约六个小时完成的。请尊重作者劳动，转载注明出处。
+
+
+/////////////////////yarn
+
+我们在配置yarn的时候只有充分了解各参数的含义，才能避免隐患。这些参数均在yarn-site.xml中配置
+
+　　以下涉及的简写：
+
+　　RM ：ResourceManager
+
+　　AM ：ApplicationMaster
+
+　　NM ：NodeManager
+
+
+
+参数	默认值　	描述
+yarn.resourcemanager.hostname	 	RM的hostname
+yarn.resourcemanager.address	${yarn.resourcemanager.hostname}:8032	RM对客户端暴露的地址，客户端通过该地址向RM提交应用程序等
+yarn.resourcemanager.scheduler.address	${yarn.resourcemanager.hostname}:8030	RM对AM暴露的地址，AM通过地址想RM申请资源，释放资源等
+yarn.resourcemanager.webapp.address	${yarn.resourcemanager.hostname}:8088	RM对外暴露的web  http地址，用户可通过该地址在浏览器中查看集群信息
+yarn.resourcemanager.webapp.https.address	${yarn.resourcemanager.hostname}:8090	web https 地址
+yarn.resourcemanager.resource-tracker.address	${yarn.resourcemanager.hostname}:8031	RM对NM暴露地址，NM通过该地址向RM汇报心跳，领取任务等
+yarn.resourcemanager.resource-tracker.client.thread-count	50	处理来自NM的RPC请求的handler数
+yarn.resourcemanager.admin.address	${yarn.resourcemanager.hostname}:8033	管理员可以通过该地址向RM发送管理命令等
+yarn.resourcemanager.scheduler.class
+org.apache.hadoop.yarn.server.resourcemanager
+
+.scheduler.capacity.CapacityScheduler
+
+资源调度器主类
+yarn.resourcemanager.scheduler.client.thread-count	50	处理来自AM的RPC请求的handler数
+yarn.scheduler.minimum-allocation-mb	1024	可申请的最少内存资源，以MB为单位
+yarn.scheduler.maximum-allocation-mb	8192	可申请的最大内存资源，以MB为单位
+yarn.scheduler.minimum-allocation-vcores	1	可申请的最小虚拟CPU个数
+yarn.scheduler.maximum-allocation-vcores	32	可申请的最 大虚拟CPU个数
+yarn.nodemanager.local-dirs	${hadoop.tmp.dir}/nm-local-dir	中间结果存放位置，可配置多目录
+yarn.log-aggregation-enable	false	是否启用日志聚合
+yarn.nodemanager.remote-app-log-dir	/tmp/logs	日志聚合目录
+yarn.nodemanager.resource.memory-mb	8192	NM总的可用物理内存，以MB为单位。一旦设置，不可动态修改
+yarn.nodemanager.resource.cpu-vcores	8	可分配的CPU个数
+yarn.nodemanager.aux-services	 	NodeManager上运行的附属服务。需配置成mapreduce_shuffle，才可运行MapReduce程序
+
+
+/////////////////////////////////
+
+
+集群搭建
+
+因为服务器数量有限，这里服务器开启的进程有点多：
+
+机器名　　	安装软件　　	运行进程　　
+hadoop001　　　	Hadoop,Zookeeper　　
+NameNode, DFSZKFailoverController, ResourceManager
+
+DataNode, NodeManager
+
+QuorumPeerMain
+
+JournalNode
+
+hadoop002	Hadoop,Zookeeper
+NameNode, DFSZKFailoverController, ResourceManager
+
+DataNode, NodeManager
+
+QuorumPeerMain
+
+JournalNode
+
+hadoop003	Hadoop,Zookeeper
+DataNode, NodeManager
+
+QuorumPeerMain
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+说明[2]：
+在hadoop2.X中通常由两个NameNode组成，一个处于active状态，另一个处于standby状态。Active NameNode对外提供服务，而Standby NameNode则不对外提供服务，仅同步active namenode的状态，以便能够在它失败时快速进行切换。
+hadoop2.0官方提供了两种HDFS HA的解决方案，一种是NFS，另一种是QJM（由cloudra提出，原理类似zookeeper）。这里我使用QJM完成。主备NameNode之间通过一组JournalNode同步元数据信息，一条数据只要成功写入多数JournalNode即认为写入成功。通常配置奇数个JournalNode
+
+这里略去jdk，Hadoop，Zookeeper的安装过程和环境变量配置。
+
+无密码登陆
+这里要非常注意无密码登陆的配置：
+ssh-keygen -t rsa
+在~/.ssh/目录中生成两个文件id_rsa和id_rsa.pub
+
+如果想从hadoop001免密码登录到hadoop002中要在hadoop001中执行
+
+ssh-copy-id -i ~/.ssh/id_rsa.pub [用户名]@hadoop002
+这里为了实现任何机器之间都可以免密码登陆，所以在hadoop001中再执行两遍上面的操作（把@后面的机器名分别改成hadoop001和hadoop003），最后把生成的authorized_keys复制所有的节点上
+
+
+
+Hadoop配置
+core-site.xml
+
+复制代码
+<configuration>
+<!--   -->
+<property>
+<name>fs.defaultFS</name>
+<value>hdfs://appcluster</value>
+</property>
+
+<!-- 指定hadoop临时目录 -->
+<property>
+<name>hadoop.tmp.dir</name>
+<value>/data/hadoop/storage/tmp</value>
+</property>
+
+<!-- 指定zookeeper地址 -->
+<property>
+<name>ha.zookeeper.quorum</name>
+<value>hadoop001:2181,hadoop002:2181,hadoop003:2181</value>
+</property>
+
+<property>
+<name>ha.zookeeper.session-timeout.ms</name>
+<value>2000</value>
+</property>
+</configuration>
+复制代码
+
+
+hdfs-site.xml
+
+复制代码
+<configuration>
+<!--指定namenode名称空间的存储地址-->
+<property>
+<name>dfs.namenode.name.dir</name>
+<value>file:///data/hadoop/storage/hdfs/name</value>
+</property>
+
+<!--指定datanode数据存储地址-->
+<property>
+<name>dfs.datanode.data.dir</name>
+<value>file:///data/hadoop/storage/hdfs/data</value>
+</property>
+
+<!--指定数据冗余份数-->
+<property>
+<name>dfs.replication</name>
+<value>2</value>
+</property>
+
+<!--指定hdfs的nameservice为appcluster，需要和core-site.xml中的保持一致 -->
+<property>
+<name>dfs.nameservices</name>
+<value>appcluster</value>
+</property>
+
+<!-- appcluster下面有两个NameNode，分别是nn1，nn2 -->
+<property>
+<name>dfs.ha.namenodes.appcluster</name>
+<value>nn1,nn2</value>
+</property>
+
+<!-- nn1的RPC通信地址 -->
+<property>
+<name>dfs.namenode.rpc-address.appcluster.nn1</name>
+<value>hadoop001:8020</value>
+</property>
+
+<!-- nn2的RPC通信地址 -->
+<property>
+<name>dfs.namenode.rpc-address.appcluster.nn2</name>
+<value>hadoop002:8020</value>
+</property>
+
+<!-- nn1的http通信地址 -->
+<property>
+<name>dfs.namenode.http-address.appcluster.nn1</name>
+<value>hadoop001:50070</value>
+</property>
+
+<!-- nn2的http通信地址 -->
+<property>
+<name>dfs.namenode.http-address.appcluster.nn2</name>
+<value>hadoop002:50070</value>
+</property>
+
+<!-- 指定NameNode的元数据在JournalNode上的存放位置 -->
+<property>
+<name>dfs.namenode.shared.edits.dir</name>
+<value>qjournal://hadoop001:8485;hadoop002:8485;hadoop003:8485/appcluster</value>
+</property>
+
+<property>
+<name>dfs.ha.automatic-failover.enabled.appcluster</name>
+<value>true</value>
+</property>
+
+<!-- 配置失败自动切换实现方式 -->
+<property>
+<name>dfs.client.failover.proxy.provider.appcluster</name>
+<value>org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider</value>
+</property>
+
+<!-- 配置隔离机制 -->
+<property>
+<name>dfs.ha.fencing.methods</name>
+<value>sshfence</value>
+</property>
+
+<!-- 使用隔离机制时需要ssh免密码登陆 -->
+<property>
+<name>dfs.ha.fencing.ssh.private-key-files</name>
+<value>/home/[用户名]/.ssh/id_rsa</value>
+</property>
+
+<!-- -->
+<property>
+<name>dfs.journalnode.edits.dir</name>
+<value>/data/hadoop/tmp/journal</value>
+</property>
+</configuration>
+复制代码
+
+
+mapred-site.xml
+
+复制代码
+<configuration>
+<property>
+<name>mapreduce.framework.name</name>
+<value>yarn</value>
+</property>
+
+<!-- 配置 MapReduce JobHistory Server 地址 ，默认端口10020 -->
+<property>
+<name>mapreduce.jobhistory.address</name>
+<value>0.0.0.0:10020</value>
+</property>
+
+<!-- 配置 MapReduce JobHistory Server web ui 地址， 默认端口19888 -->
+<property>
+<name>mapreduce.jobhistory.webapp.address</name>
+<value>0.0.0.0:19888</value>
+</property>
+</configuration>
+复制代码
+
+
+yarn-site.xml
+
+复制代码
+<?xml version="1.0"?>
+<configuration>
+<!--rm失联后重新链接的时间-->
+<property>
+<name>yarn.resourcemanager.connect.retry-interval.ms</name>
+<value>2000</value>
+</property>
+
+<!--开启resourcemanagerHA,默认为false-->
+<property>
+<name>yarn.resourcemanager.ha.enabled</name>
+<value>true</value>
+</property>
+
+<!--配置resourcemanager-->
+<property>
+<name>yarn.resourcemanager.ha.rm-ids</name>
+<value>rm1,rm2</value>
+</property>
+
+<property>
+<name>ha.zookeeper.quorum</name>
+<value>hadoop001:2181,hadoop002:2181,hadoop003:2181</value>
+</property>
+
+<!--开启故障自动切换-->
+<property>
+<name>yarn.resourcemanager.ha.automatic-failover.enabled</name>
+<value>true</value>
+</property>
+
+<property>
+<name>yarn.resourcemanager.hostname.rm1</name>
+<value>hadoop001</value>
+</property>
+
+<property>
+<name>yarn.resourcemanager.hostname.rm2</name>
+<value>hadoop002</value>
+</property>
+
+<!--
+在hadoop001上配置rm1,在hadoop002上配置rm2,
+注意：一般都喜欢把配置好的文件远程复制到其它机器上，但这个在YARN的另一个机器上一定要修改
+-->
+<property>
+<name>yarn.resourcemanager.ha.id</name>
+<value>rm1</value>
+<description>If we want to launch more than one RM in single node,we need this configuration</description>
+</property>
+
+<!--开启自动恢复功能-->
+<property>
+<name>yarn.resourcemanager.recovery.enabled</name>
+<value>true</value>
+</property>
+
+<!--配置与zookeeper的连接地址-->
+<property>
+<name>yarn.resourcemanager.zk-state-store.address</name>
+<value>hadoop001:2181,hadoop002:2181,hadoop003:2181</value>
+</property>
+
+<property>
+<name>yarn.resourcemanager.store.class</name>
+<value>org.apache.hadoop.yarn.server.resourcemanager.recovery.ZKRMStateStore</value>
+</property>
+
+<property>
+<name>yarn.resourcemanager.zk-address</name>
+<value>hadoop001:2181,hadoop002:2181,hadoop003:2181</value>
+</property>
+
+<property>
+<name>yarn.resourcemanager.cluster-id</name>
+<value>appcluster-yarn</value>
+</property>
+
+<!--schelduler失联等待连接时间-->
+<property>
+<name>yarn.app.mapreduce.am.scheduler.connection.wait.interval-ms</name>
+<value>5000</value>
+</property>
+
+<!--配置rm1-->
+<property>
+<name>yarn.resourcemanager.address.rm1</name>
+<value>hadoop001:8032</value>
+</property>
+
+<property>
+<name>yarn.resourcemanager.scheduler.address.rm1</name>
+<value>hadoop001:8030</value>
+</property>
+
+<property>
+<name>yarn.resourcemanager.webapp.address.rm1</name>
+<value>hadoop001:8088</value>
+</property>
+
+<property>
+<name>yarn.resourcemanager.resource-tracker.address.rm1</name>
+<value>hadoop001:8031</value>
+</property>
+
+<property>
+<name>yarn.resourcemanager.admin.address.rm1</name>
+<value>hadoop001:8033</value>
+</property>
+
+<property>
+<name>yarn.resourcemanager.ha.admin.address.rm1</name>
+<value>hadoop001:23142</value>
+</property>
+
+<!--配置rm2-->
+<property>
+<name>yarn.resourcemanager.address.rm2</name>
+<value>hadoop002:8032</value>
+</property>
+
+<property>
+<name>yarn.resourcemanager.scheduler.address.rm2</name>
+<value>hadoop002:8030</value>
+</property>
+
+<property>
+<name>yarn.resourcemanager.webapp.address.rm2</name>
+<value>hadoop002:8088</value>
+</property>
+
+<property>
+<name>yarn.resourcemanager.resource-tracker.address.rm2</name>
+<value>hadoop002:8031</value>
+</property>
+
+<property>
+<name>yarn.resourcemanager.admin.address.rm2</name>
+<value>hadoop002:8033</value>
+</property>
+
+<property>
+<name>yarn.resourcemanager.ha.admin.address.rm2</name>
+<value>hadoop002:23142</value>
+</property>
+
+<property>
+<name>yarn.nodemanager.aux-services</name>
+<value>mapreduce_shuffle</value>
+</property>
+
+<property>
+<name>yarn.nodemanager.aux-services.mapreduce.shuffle.class</name>
+<value>org.apache.hadoop.mapred.ShuffleHandler</value>
+</property>
+
+<property>
+<name>yarn.nodemanager.local-dirs</name>
+<value>/data/hadoop/yarn/local</value>
+</property>
+
+<property>
+<name>yarn.nodemanager.log-dirs</name>
+<value>/data/hadoop/yarn/log</value>
+</property>
+
+<property>
+<name>mapreduce.shuffle.port</name>
+<value>23080</value>
+</property>
+
+<!--故障处理类-->
+<property>
+<name>yarn.client.failover-proxy-provider</name>
+<value>org.apache.hadoop.yarn.client.ConfiguredRMFailoverProxyProvider</value>
+</property>
+
+<property>
+<name>yarn.resourcemanager.ha.automatic-failover.zk-base-path</name>
+<value>/yarn-leader-election</value>
+<description>Optionalsetting.Thedefaultvalueis/yarn-leader-election</description>
+</property>
+</configuration>
+复制代码
+
+
+
+
+hadoop-env.sh & mapred-env.sh & yarn-env.sh
+复制代码
+export JAVA_HOME=/usr/java/jdk1.7.0_60
+export CLASS_PATH=$JAVA_HOME/lib:$JAVA_HOME/jre/lib
+
+export HADOOP_HOME=/data/hadoop-2.6.0
+export HADOOP_PID_DIR=/data/hadoop/pids
+export HADOOP_COMMON_LIB_NATIVE_DIR=$HADOOP_HOME/lib/native
+export HADOOP_OPTS="$HADOOP_OPTS-Djava.library.path=$HADOOP_HOME/lib/native"
+
+export HADOOP_PREFIX=$HADOOP_HOME
+
+export HADOOP_MAPRED_HOME=$HADOOP_HOME
+export HADOOP_COMMON_HOME=$HADOOP_HOME
+export HADOOP_HDFS_HOME=$HADOOP_HOME
+export YARN_HOME=$HADOOP_HOME
+
+export HADOOP_CONF_DIR=$HADOOP_HOME/etc/hadoop
+export HDFS_CONF_DIR=$HADOOP_HOME/etc/hadoop
+export YARN_CONF_DIR=$HADOOP_HOME/etc/hadoop
+
+export JAVA_LIBRARY_PATH=$HADOOP_HOME/lib/native
+
+export PATH=$PATH:$JAVA_HOME/bin:$HADOOP_HOME/bin:$HADOOP_HOME/sbin
+复制代码
+
+
+参考文献
+
+[1] hdfs-site.xml:http://www.21ops.com/front-tech/10744.html
+
+[2] yarn-site.xml: http://www.aboutyun.com/thread-10572-1-1.html 评论也值得参考
+
+仅参考这两篇配置后报错：
+
+15/07/17 13:58:55 FATAL ha.ZKFailoverController: Automatic failover is not enabled for NameNode at hadoop001/**.**.**.**:8020. Please ensure that automatic failover is enabled in the configuration before running the ZK failover controller.
+再参考
+
+[3]http://www.cnblogs.com/meiyuanbao/p/3545929.html (没有做到Yarn的HA)
+
+发现需要在hdfs-site.xml添加配置：
+
+<property>
+<name>dfs.ha.automatic-failover.enabled.appcluster</name>
+<value>true</value>
+</property>
+
+
+
+///////////////////////////////
+
+第一部分Hadoop Yarn内存使用优化配置
+    在Hadoop2.0中, YARN负责管理MapReduce中的资源(内存, CPU等)并且将其打包成Container. 这样可以精简MapReduce, 使之专注于其擅长的数据处理任务, 将无需考虑资源调度。
+    YARN会管理集群中所有机器的可用计算资源. 基于这些资源YARN会调度应用(比如MapReduce)发来的资源请求, 然后YARN会通过分配Container来给每个应用提供处理能力, Container是YARN中处理能力的基本单元, 是对内存, CPU等的封装。
+    Yarn架构做资源管理，在每个节点上面运行NodeManager负责节点资源的分配，在Yarn上面Container是资源的分配的最小单元。
+    Yarn集群的内存分配配置在yarn-site.xml文件中配置：
+<property>
+    <name>yarn.nodemanager.resource.memory-mb</name>
+    <value>8192</value>
+    <discription>每个节点可用内存,单位MB</discription>
+</property>
+
+<property>
+    <name>yarn.scheduler.minimum-allocation-mb</name>
+    <value>1024</value>
+    <discription>单个任务可申请最少内存，默认1024MB</discription>
+</property>
+
+<property>
+    <name>yarn.scheduler.maximum-allocation-mb</name>
+    <value>8192</value>
+    <discription>单个任务可申请最大内存，默认8192MB</discription>
+</property>
+    而Mapreduce的任务的内存配置：
+<property>
+<name>mapreduce.map.memory.mb</name>
+<value>1024</value>
+<description>每个Map任务的物理内存限制</description>
+</property>
+
+<property>
+<name>mapreduce.reduce.memory.mb</name>
+<value>1024</value>
+<description>每个Reduce任务的物理内存限制</description>
+</property>
+
+<property>
+<name>mapred.child.java.opts</name>
+<value>-Xmx1024m</value>
+</property>
+    其中mapreduce.map.memory.mb配置每个map任务的内存，应该是大于或者等于Container的最小内存。
+    按照上面的配置：每个slave可以运行map的数据<= yarn.nodemanager.resource.memory-mb/mapreduce.map.memory.mb
+，reduce任务的数量<=yarn.nodemanager.resource.memory-mb/mapreduce.reduce.memory.mb
+
+
+第二部分Hadoop YARN配置参数剖析
+一、RM与NM相关参数（yarn-site.xml）
+1、ResourceManager相关配置参数
+（1）yarn.resourcemanager.address
+参数解释：ResourceManager 对客户端暴露的地址。客户端通过该地址向RM提交应用程序，杀死应用程序等。
+默认值：${yarn.resourcemanager.hostname}:8032
+（2）yarn.resourcemanager.scheduler.address
+参数解释：ResourceManager 对ApplicationMaster暴露的访问地址。ApplicationMaster通过该地址向RM申请资源、释放资源等。
+默认值：${yarn.resourcemanager.hostname}:8030
+（3）yarn.resourcemanager.resource-tracker.address
+参数解释：ResourceManager 对NodeManager暴露的地址.。NodeManager通过该地址向RM汇报心跳，领取任务等。
+默认值：${yarn.resourcemanager.hostname}:8031
+（4）yarn.resourcemanager.admin.address
+参数解释：ResourceManager 对管理员暴露的访问地址。管理员通过该地址向RM发送管理命令等。
+默认值：${yarn.resourcemanager.hostname}:8033
+（5）yarn.resourcemanager.webapp.address
+参数解释：ResourceManager对外web ui地址。用户可通过该地址在浏览器中查看集群各类信息。
+默认值：${yarn.resourcemanager.hostname}:8088
+（6）yarn.resourcemanager.scheduler.class
+参数解释：启用的资源调度器主类。目前可用的有FIFO、Capacity Scheduler和Fair Scheduler。
+默认值：org.apache.hadoop.yarn.server.resourcemanager.scheduler.capacity.CapacityScheduler
+（7）yarn.resourcemanager.resource-tracker.client.thread-count
+参数解释：处理来自NodeManager的RPC请求的Handler数目。
+默认值：50
+（8）yarn.resourcemanager.scheduler.client.thread-count
+参数解释：处理来自ApplicationMaster的RPC请求的Handler数目。
+默认值：50
+（9）yarn.scheduler.minimum-allocation-mb/yarn.scheduler.maximum-allocation-mb
+参数解释：单个可申请的最小/最大内存资源量。比如设置为1024和3072，则运行MapRedce作业时，每个Task最少可申请1024MB内存，最多可申请3072MB内存。
+默认值：1024/8192
+（10）yarn.scheduler.minimum-allocation-vcores/yarn.scheduler.maximum-allocation-vcores
+参数解释：单个可申请的最小/最大虚拟CPU个数。比如设置为1和4，则运行MapRedce作业时，每个Task最少可申请1个虚拟CPU，最多可申请4个虚拟CPU。什么是虚拟CPU，可阅读我的这篇文章：“YARN 资源调度器剖析”。
+默认值：1/32
+（11）yarn.resourcemanager.nodes.include-path /yarn.resourcemanager.nodes.exclude-path
+参数解释：NodeManager黑白名单。如果发现若干个NodeManager存在问题，比如故障率很高，任务运行失败率高，则可以将之加入黑名单中。注意，这两个配置参数可以动态生效。（调用一个refresh命令即可）
+默认值：“”
+（12）yarn.resourcemanager.nodemanagers.heartbeat-interval-ms
+参数解释：NodeManager心跳间隔
+默认值：1000（毫秒）
+2、NodeManager相关配置参数
+（1）yarn.nodemanager.resource.memory-mb
+参数解释：NodeManager总的可用物理内存。注意，该参数是不可修改的，一旦设置，整个运行过程中不可动态修改。另外，该参数的默认值是8192MB，即使你的机器内存不够8192MB，YARN也会按照这些内存来使用（傻不傻？），因此，这个值通过一定要配置。不过，Apache已经正在尝试将该参数做成可动态修改的。
+默认值：8192
+（2）yarn.nodemanager.vmem-pmem-ratio
+参数解释：每使用1MB物理内存，最多可用的虚拟内存数。
+默认值：2.1
+（3）yarn.nodemanager.resource.cpu-vcores
+参数解释：NodeManager总的可用虚拟CPU个数。
+默认值：8
+（4）yarn.nodemanager.local-dirs
+参数解释：中间结果存放位置，类似于1.0中的mapred.local.dir。注意，这个参数通常会配置多个目录，已分摊磁盘IO负载。
+默认值：${hadoop.tmp.dir}/nm-local-dir
+（5）yarn.nodemanager.log-dirs
+参数解释：日志存放地址（可配置多个目录）。
+默认值：${yarn.log.dir}/userlogs
+（6）yarn.nodemanager.log.retain-seconds
+参数解释：NodeManager上日志最多存放时间（不启用日志聚集功能时有效）。
+默认值：10800（3小时）
+（7）yarn.nodemanager.aux-services
+参数解释：NodeManager上运行的附属服务。需配置成mapreduce_shuffle，才可运行MapReduce程序
+默认值：“”
+二、权限与日志聚集相关参数（yarn-site.xml）
+1、权限相关配置参数
+    这里的权限由三部分组成，分别是：（1）管理员和普通用户如何区分（2）服务级别的权限，比如哪些用户可以向集群提交ResourceManager提交应用程序，（3）队列级别的权限，比如哪些用户可以向队列A提交作业等。
+    管理员列表由参数yarn.admin.acl指定。
+    服务级别的权限是通过配置hadoop-policy.xml实现的，这个与Hadoop 1.0类似。
+    队列级别的权限是由对应的资源调度器内部配置的，比如Fair Scheduler或者Capacity Scheduler等，具体见后面。
+2、日志聚集相关配置参数
+    日志聚集是YARN提供的日志中央化管理功能，它能将运行完成的Container/任务日志上传到HDFS上，从而减轻NodeManager负载，且提供一个中央化存储和分析机制。默认情况下，Container/任务日志存在在各个NodeManager上，如果启用日志聚集功能需要额外的配置。
+（1）yarn.log-aggregation-enable
+参数解释：是否启用日志聚集功能。
+默认值：false
+（2）yarn.log-aggregation.retain-seconds
+参数解释：在HDFS上聚集的日志最多保存多长时间。
+默认值：-1
+（3）yarn.log-aggregation.retain-check-interval-seconds
+参数解释：多长时间检查一次日志，并将满足条件的删除，如果是0或者负数，则为上一个值的1/10。
+默认值：-1
+（4）yarn.nodemanager.remote-app-log-dir
+参数解释：当应用程序运行结束后，日志被转移到的HDFS目录（启用日志聚集功能时有效）。
+默认值：/tmp/logs
+（5）yarn.log-aggregation.retain-seconds
+参数解释：远程日志目录子目录名称（启用日志聚集功能时有效）。
+默认值：日志将被转移到目录${yarn.nodemanager.remote-app-log-dir}/${user}/${thisParam}下
+三、MapReduce相关参数（mapred-site.xml）
+    MapReduce相关配置参数分为两部分，分别是JobHistory Server和应用程序参数，Job History可运行在一个独立节点上，而应用程序参数则可存放在mapred-site.xml中作为默认参数，也可以在提交应用程序时单独指定，注意，如果用户指定了参数，将覆盖掉默认参数。
+    以下这些参数全部在mapred-site.xml中设置。
+1、MapReduce JobHistory相关配置参数
+    在JobHistory所在节点的mapred-site.xml中配置。
+（1）mapreduce.jobhistory.address
+参数解释：MapReduce JobHistory Server地址。
+默认值： 0.0.0.0:10020
+（2）mapreduce.jobhistory.webapp.address
+参数解释：MapReduce JobHistory Server Web UI地址。
+默认值： 0.0.0.0:19888
+（3）mapreduce.jobhistory.intermediate-done-dir
+参数解释：MapReduce作业产生的日志存放位置。
+默认值： /mr-history/tmp
+（4）mapreduce.jobhistory.done-dir
+参数解释：MR JobHistory Server管理的日志的存放位置。
+默认值： /mr-history/done
+2、MapReduce作业配置参数
+    可在客户端的mapred-site.xml中配置，作为MapReduce作业的缺省配置参数。也可以在作业提交时，个性化指定这些参数。
+
+
+
+
+
+
+
+
+    /////////////////////////////队列
+
+    Capacity Scheduler是YARN中默认的资源调度器。
+    想要了解Capacity Scheduler是什么，可阅读我的这篇文章“Hadoop Capacity Scheduler分析”。
+    在Capacity Scheduler的配置文件中，队列queueX的参数Y的配置名称为yarn.scheduler.capacity.queueX.Y，为了简单起见，我们记为Y，则每个队列可以配置的参数如下：
+    1.  资源分配相关参数
+    （1）  capacity：队列的资源容量（百分比）。 当系统非常繁忙时，应保证每个队列的容量得到满足，而如果每个队列应用程序较少，可将剩余资源共享给其他队列。注意，所有队列的容量之和应小于100。
+    （2）  maximum-capacity：队列的资源使用上限（百分比）。由于存在资源共享，因此一个队列使用的资源量可能超过其容量，而最多使用资源量可通过该参数限制。
+    m  minimum-user-limit-percent：每个用户最低资源保障（百分比）。任何时刻，一个队列中每个用户可使用的资源量均有一定的限制。当一个队列中同时运行多个用户的应用程序时中，每个用户的使用资源量在一个最小值和最大值之间浮动，其中，最小值取决于正在运行的应用程序数目，而最大值则由minimum-user-limit-percent决定。比如，假设minimum-user-limit-percent为25。当两个用户向该队列提交应用程序时，每个用户可使用资源量不能超过50%，如果三个用户提交应用程序，则每个用户可使用资源量不能超多33%，如果四个或者更多用户提交应用程序，则每个用户可用资源量不能超过25%。
+    （3）  user-limit-factor：每个用户最多可使用的资源量（百分比）。比如，假设该值为30，则任何时刻，每个用户使用的资源量不能超过该队列容量的30%。
+    2.  限制应用程序数目相关参数
+    （1）  maximum-applications ：集群或者队列中同时处于等待和运行状态的应用程序数目上限，这是一个强限制，一旦集群中应用程序数目超过该上限，后续提交的应用程序将被拒绝，默认值为10000。所有队列的数目上限可通过参数yarn.scheduler.capacity.maximum-applications设置（可看做默认值），而单个队列可通过参数yarn.scheduler.capacity.<queue-path>.maximum-applications设置适合自己的值。
+    （2）  maximum-am-resource-percent：集群中用于运行应用程序ApplicationMaster的资源比例上限，该参数通常用于限制处于活动状态的应用程序数目。该参数类型为浮点型，默认是0.1，表示10%。所有队列的ApplicationMaster资源比例上限可通过参数yarn.scheduler.capacity. maximum-am-resource-percent设置（可看做默认值），而单个队列可通过参数yarn.scheduler.capacity.<queue-path>. maximum-am-resource-percent设置适合自己的值。
+    3.  队列访问和权限控制参数
+    （1）  state ：队列状态可以为STOPPED或者RUNNING，如果一个队列处于STOPPED状态，用户不可以将应用程序提交到该队列或者它的子队列中，类似的，如果ROOT队列处于STOPPED状态，用户不可以向集群中提交应用程序，但正在运行的应用程序仍可以正常运行结束，以便队列可以优雅地退出。
+    （2）  acl_submit_applications：限定哪些Linux用户/用户组可向给定队列中提交应用程序。需要注意的是，该属性具有继承性，即如果一个用户可以向某个队列中提交应用程序，则它可以向它的所有子队列中提交应用程序。配置该属性时，用户之间或用户组之间用“，”分割，用户和用户组之间用空格分割，比如“user1, user2 group1,group2”。
+    （3）  acl_administer_queue：为队列指定一个管理员，该管理员可控制该队列的所有应用程序，比如杀死任意一个应用程序等。同样，该属性具有继承性，如果一个用户可以向某个队列中提交应用程序，则它可以向它的所有子队列中提交应用程序。
+    一个配置文件实例如下：
+
+    <configuration>
+      <property>
+        <name>yarn.scheduler.capacity.maximum-applications</name>
+        <value>10000</value>
+        <description>最多可同时处于等待和运行状态的应用程序数目</description>
+      </property>
+
+      <property>
+        <name>yarn.scheduler.capacity.maximum-am-resource-percent</name>
+        <value>0.1</value>
+        <description>集群中可用于运行application master的资源比例上限，这通常用于限制并发运行的应用程序数目。</description>
+      </property>
+
+      <property>
+        <name>yarn.scheduler.capacity.root.queues</name>
+        <value>default</value>
+        <description>root队列的所有子队列，该实例中只有一个</description>
+      </property>
+
+      <property>
+        <name>yarn.scheduler.capacity.root.default.capacity</name>
+        <value>100</value>
+        <description>default队列的资源容量</description>
+      </property>
+
+      <property>
+        <name>yarn.scheduler.capacity.root.default.user-limit-factor</name>
+        <value>1</value>
+        <description>
+         每个用户可使用的资源限制
+        </description>
+      </property>
+
+      <property>
+        <name>yarn.scheduler.capacity.root.default.maximum-capacity</name>
+        <value>100</value>
+        <description>
+          Default队列可使用的资源上限.
+        </description>
+      </property>
+
+      <property>
+        <name>yarn.scheduler.capacity.root.default.state</name>
+        <value>RUNNING</value>
+        <description>
+         Default队列的状态，可以是RUNNING或者STOPPED.
+        </description>
+      </property>
+
+      <property>
+        <name>yarn.scheduler.capacity.root.default.acl_submit_applications</name>
+        <value>*</value>
+        <description>
+          限制哪些用户可向default队列中提交应用程序.
+        </description>
+      </property>
+
+      <property>
+        <name>yarn.scheduler.capacity.root.default.acl_administer_queue</name>
+        <value>*</value>
+        <description>
+    限制哪些用户可管理default队列中的应用程序，“*”表示任意用户
+    </description>
+      </property>
+
+      <property>
+        <name>yarn.scheduler.capacity.node-locality-delay</name>
+        <value>-1</value>
+        <description>调度器尝试调度一个rack-local container之前，最多跳过的调度机会，通常而言，该值被设置成集群中机架数目，默认情况下为-1，表示不启用该功能。
+        </description>
+      </property>
+    </configuration>
+
+
+
+
+    ////////////////////////
+
+    yarn中一个基本的调度单元是队列。
+
+    yarn的内置调度器：
+    1.FIFO先进先出，一个的简单调度器，适合低负载集群。
+    2.Capacity调度器，给不同队列（即用户或用户组）分配一个预期最小容量，在每个队列内部用层次化的FIFO来调度多个应用程序。
+    3.Fair公平调度器，针对不同的应用（也可以为用户或用户组），每个应用属于一个队列，主旨是让每个应用分配的资源大体相当。（当然可以设置权重），若是只有一个应用，那集群所有资源都是他的。 适用情况：共享大集群、队列之间有较大差别。
+
+    capacity调度器的启用：
+    在ResourceManager节点上的yarn-site.xml设置
+    Property===>yarn.resourcemanager.scheduler.class
+    Value=====>org.apache.hadoop.yarn.server.resourcemanager.scheduler.capacity.CapacityScheduler
+
+    capacity调度器的配置:
+    在目录$HADOOP_HOME/hadoop/etc/hadoop/capacity-scheduler.xml
+
+    修改完成后，需要执行下面的命令：
+
+    $HADOOP_YARN_HOME/bin/yarn rmadmin -refreshQueues    使功能动态生效。
+
+
+
+    capacity-scheduler.xml的配置
+    1.定义层级队列
+
+
+     1 <property>
+     2   <name>yarn.scheduler.capacity.root.queues</name>
+     3   <value>a,b,c</value>            //root根队列下有三个子队列
+     4   <description>The queues at the this level (root is the root queue).
+     5   </description>
+     6 </property>
+     7
+     8 <property>
+     9   <name>yarn.scheduler.capacity.root.a.queues</name>
+    10   <value>a1,a2</value>            //root.a队列下有2个子队列
+    11   <description>The queues at the this level (root is the root queue).
+    12   </description>
+    13 </property>
+    14
+    15 <property>
+    16   <name>yarn.scheduler.capacity.root.b.queues</name>
+    17   <value>b1,b2,b3</value>        //root.b队列下有3个子队列
+    18   <description>The queues at the this level (root is the root queue).
+    19   </description>
+    20 </property>
+    复制代码
+    2.队列的调度
+
+    如上定义了
+
+    /----------a-----------a1
+
+    　　　　   -----------a2
+
+    　　　　　b----------b1
+
+    　　　　　 ----------b2
+
+    　　　　　 ----------b3
+
+    　　　　　c
+
+    这种结构的队列。
+
+    队列调度算法工作方式
+
+    在每一层级，队列排序是根据当前队列使用资源的占比确定的，（占比相同，根据队列全路径名排序）
+    根队列将集群容量分配给第一层父队列（a,b,c），并对每个父队列递归调度。（a,b,c三个队列容量之和为100，容量是按百分比分配的）
+    父队列下的（同层级）子队列调度同上，也按容量限制。
+    子队列下管理的多个应用程序，按照FIFO方式调度资源。
+    每个队列都有最大最小资源占用限制，单个用户不会占尽集群资源，后文Capacity资源分配部分会详细介绍。
+
+    3.队列的访问权限控制
+
+    配置文件 $HADOOP_HOME/hadoop/etc/hadoop/capacity-scheduler.xml
+
+    <property>
+      <name>yarn.scheduler.capacity.root.a.acl_submit_applications</name>
+      <value>user1,user2 group</value>
+    </property>
+    <property>
+      <name>yarn.scheduler.capacity.root.a.acl_administer_queue</name>
+      <value>"group"</value>
+    </property>
+    配置了可以提交任务到root.a队列的用户或用户组，其他用户没有权限提交任务到这个队列。value=*表示所有用户都可以提交。
+
+    root.a队列的管理员group，有权限查看该队列所有用户提交的应用程序细节。
+
+    4.队列容量配置
+
+    复制代码
+      <property>
+        <name>yarn.scheduler.capacity.root.a.capacity</name>
+        <value>40</value>
+        <description>队列a占40%</description>
+      </property>
+      <property>
+        <name>yarn.scheduler.capacity.root.b.capacity</name>
+        <value>50</value>
+        <description>队列b占50%</description>
+      </property>
+      <property>
+        <name>yarn.scheduler.capacity.root.c.capacity</name>
+        <value>10</value>
+        <description>队列c占10%</description>
+      </property>
+    复制代码
+    队列容量是以百分比表示的，按照a：b:c即4:5:1的比例共享集群资源。
+
+    子队列容量配置
+
+    复制代码
+      <property>
+        <name>yarn.scheduler.capacity.root.a.a1.capacity</name>
+        <value>30</value>
+        <description>队列root.a.a1占30%</description>
+      </property>
+      <property>
+        <name>yarn.scheduler.capacity.root.a.a2.capacity</name>
+        <value>70</value>
+        <description>队列root.a.a2占70%</description>
+      </property>
+    复制代码
+    层级结构中同层级子队列容量之和不超过100%。
+
+    容量弹性配置项
+
+      <property>
+        <name>yarn.scheduler.capacity.root.a.a1.maximum-capacity</name>
+        <value>40</value>
+      </property>
+    该设置项表示可以超出父队列容量的40%，即总容量=分配的容量*140%。（实在其他队列空闲的情况下，若是其他队列有充足的任务进行，是按照比例分配的）
+
+    5.用户级别限制
+
+    用户最小资源占用设置
+
+     <property>
+        <name>yarn.scheduler.capacity.root.a.a1.minimun-user-limit-percent</name>
+        <value>20</value>
+      </property>
+    如上配置表示一个用户最少能占用队列root.a.a1容量的20%。
+
+    随着提交任务用户数的增长，有如下情况：
+
+    1.刚开始队列空闲，只有user1提交任务后，user1独占队列。
+
+    2.user2开始提交任务，user1多占用的资源不会立即释放，等user1的Container完成任务后才分配给user2。（如果Capacity调度器的抢占功能打开，user1占用的Container会被立即杀死并分配给user2）
+
+    3.第6个用户user6提交任务后（前5个用户都有任务在执行），不会分配资源给user6，应为要保证最少资源占用20%的保障，user6会放在等待列表，等待一个或多个用户任务结束。
+
+    4.每个用户提交的任务，基于FIFO顺序调度，先提交的任务优先级高于后提交的任务。
+
+    用户容量弹性配置项
+
+     <property>
+        <name>yarn.scheduler.capacity.root.a.a1.user-limit-factor</name>
+        <value>2</value>
+      </property>
+    该配置默认值为1，表示单个用户最大可以占该队列容量的100%，为2表示单个用户最大可以占该队列容量的200%。
+
+    6.队列的状态
+
+    YARN中队列有2种状态：运行和停止。
+
+    复制代码
+    <property>
+        <name>yarn.scheduler.capacity.root.a.a1.state</name>
+        <value>RUNNING</value>
+        <description>
+          State can be one of RUNNING or STOPPED.
+        </description>
+      </property>
+    复制代码
+    7.应用程序限制
+
+    复制代码
+      <property>
+        <name>yarn.scheduler.capacity.maximum-applications</name>
+        <value>10000</value>
+        <description>
+       特定队列最大允许应用程序总数
+        </description>
+      </property>
+
+      <property>
+        <name>yarn.scheduler.capacity.maximum-am-resource-percent</name>
+        <value>0.1</value>
+        <description>
+          AppMaster占用队列资源的最大比例
+        </description>
+      </property>
+    复制代码
+    若要限制指定队列,修改为yarn.scheduler.capacity.root.a.maximum-am-resource-percent和yarn.scheduler.capacity.root.a.maximum-applications
+
