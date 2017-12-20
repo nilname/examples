@@ -1,0 +1,2103 @@
+Spring 4+MyBatis纯注解零XML整合
+不得不说，利用XML作为配置文件是一个非常好的想法，它可以轻松地实现配置集中化，而且修改之后无需再次编译。然而，由于大多数情况下开发者基本都会拿到程序的源码，加之对于各种XML配置文件一般情况下也只有开发者会去动，可以说XML在一定程度上也相当于程序代码，只是不用编译而已。因此很多人并不是很喜欢XML这种东西。早在Spring 2.5之前就有很多人对满天飞的XML配置叫苦不迭。从Spring 2.5开始，注解的出现大大方便了配置，XML的比重大大减少，但是由于注解本身仍然需要通过XML文件配置，因此并未完全摆脱XML。自从Spring 4开始，Java config开始出现，这一特性使得Spring彻底摆脱了XML配置文件。加之MyBatis也完全可以通过注解来配置mapper，因此对于不喜欢XML配置的读者，这篇文章可以说是值得一看。
+
+首先你需要：
+
+了解传统的通过XML配置Spring+MyBatis的方法Spring 4 + MyBatis 3Servlet 3.0Java 820分钟的时间
+对于传统的Web项目自然少不了web.xml。然而从Servlet 3.0开始，这个东西已经被WebApplicationInitializer取代。顾名思义，WebApplicationInitializer是对Web应用进行初始化的一个东东。不过WebApplicationInitializer是一个接口，所以你需要提供一个WebApplicationInitializer的实现类。当你把实现类写好之后，Servlet 3.0可以自动发现它并对servlet进行初始化（当然也可以是多个实现类），可以说这个接口的实现类一定程度上等价于web.xml的配置。下面的WebApplicationInitializer实现类为Servlet的根配置，并指定该配置的加载顺序为所有配置之前（由@Order注解控制，数值越小优先级越高）。本例中该配置为空，可通过清单1中的方式来配置Filter、Listener和Servlet。
+
+清单1 配置根WebApplicationInitializer
+
+package org.fhp.springmybatis.config;
+
+import org.springframework.core.annotation.Order;
+import org.springframework.web.WebApplicationInitializer;
+
+import javax.servlet.*;
+
+@Order(1)
+public class BasicWebInitializer implements WebApplicationInitializer {
+
+
+    @Override
+    public void onStartup(ServletContext servletContext) throws ServletException {
+//        servletContext.addFilter("filterName", AFilter.class).addMappingForUrlPatterns(EnumSet.allOf(DispatcherType.class), false, "/");
+//    servletContext.addListener(EventListener.class);
+//        servletContext.addServlet("servletName", AServlet.class);
+    }
+}
+
+接下来需要进行Spring的Servlet配置。Spring提供了AbstractAnnotationConfigDispatcherServletInitializer类（也是WebApplicationInitializer的子类），实现之即可进行Spring的servlet配置。这里需要把加载顺序放在BasicWebInitializer之后。
+
+清单2 配置Spring的WebApplicationInitializer
+
+package org.fhp.springmybatis.config;
+
+import org.springframework.core.annotation.Order;
+import org.springframework.web.context.WebApplicationContext;
+import org.springframework.web.context.support.AnnotationConfigWebApplicationContext;
+import org.springframework.web.filter.CharacterEncodingFilter;
+import org.springframework.web.servlet.support.AbstractAnnotationConfigDispatcherServletInitializer;
+
+import javax.servlet.Filter;
+
+@Order(3)
+public class SpringInitializer extends AbstractAnnotationConfigDispatcherServletInitializer {
+
+    //配置Spring根上下文配置类
+    @Override
+    protected Class<!--?-->[] getRootConfigClasses() {
+        return new Class[] {SpringRootConfig.class};
+    }
+
+    //配置Spring Web上下文配置类
+    @Override
+    protected Class<!--?-->[] getServletConfigClasses() {
+        return new Class[] {SpringWebConfig.class};
+    }
+
+    //配置在什么路径下使用Spring的DispatcherServlet。等价于给DispatchServlet指定对应的url-mapping
+    @Override
+    protected String[] getServletMappings() {
+        return new String[] { "/" };
+    }
+
+    //配置与Spring相关的Filter。这里规定Spring MVC的编码为UTF-8。
+    @Override
+    protected Filter[] getServletFilters() {
+        CharacterEncodingFilter characterEncodingFilter = new CharacterEncodingFilter();
+        characterEncodingFilter.setEncoding("UTF-8");
+        characterEncodingFilter.setForceEncoding(true);
+        return new Filter[] { characterEncodingFilter };
+    }
+}
+这里Servlet的配置，等价于XML配置中的web.xml就完成了。下面开始Spring的ApplicationContext配置。
+
+首先进行Web的上下文配置。进行Web的上下文配置需要继承WebMvcConfigurerAdapter类，同时配置类也要有@Configuration，@EnableWebMvc和@ComponentScan注解。这里配置一个对静态文件访问的支持，在WebMvcConfigurerAdapter可以看到其他的配置，这里就不多说了。
+
+清单3 Spring Web ApplicationContext配置
+
+package org.fhp.springmybatis.config;
+
+import org.springframework.context.annotation.ComponentScan;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.web.servlet.config.annotation.EnableWebMvc;
+import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
+import org.springframework.web.servlet.config.annotation.WebMvcConfigurerAdapter;
+
+import java.util.List;
+
+@Configuration
+@EnableWebMvc
+@ComponentScan(basePackages = "org.fhp.springmybatis")
+public class SpringWebConfig extends WebMvcConfigurerAdapter {
+
+    @Override
+    public void addResourceHandlers(ResourceHandlerRegistry registry) {
+        registry.addResourceHandler("/static/**").addResourceLocations("/static/");
+        registry.addResourceHandler("*.html").addResourceLocations("/");
+    }
+}
+
+
+其次进行根上下文的配置。这里通过@Bean注解来取代XML中的标签。
+
+清单4 Spring Root ApplicationContext配置
+
+package org.fhp.springmybatis.config;
+
+
+import org.springframework.context.annotation.*;
+import org.springframework.transaction.annotation.EnableTransactionManagement;
+import org.springframework.beans.factory.config.PropertyPlaceholderConfigurer;
+import org.springframework.core.io.ClassPathResource;
+
+
+@Configuration
+@ComponentScan("org.fhp.springmybatis")
+@EnableAspectJAutoProxy(proxyTargetClass=true)
+@EnableTransactionManagement
+@Import(DaoConfig.class)
+public class SpringRootConfig {
+
+    @Bean
+  public PropertyPlaceholderConfigurer getTestPpc() {
+    PropertyPlaceholderConfigurer ppc = new PropertyPlaceholderConfigurer();
+    ppc.setLocations(new ClassPathResource("jdbc.properties"));
+    return ppc;
+  }
+}
+其中jdbc.properties内容如下：
+清单5 jdbc.properties配置
+
+jdbc.driverClass=com.mysql.jdbc.Driver
+jdbc.jdbcUrl=jdbc:mysql://localhost:3306/test_mysql
+jdbc.user=root
+jdbc.password=root
+
+然后是DAO层的上下文。
+清单6 DAO上下文配置
+
+package org.fhp.springmybatis.config;
+
+import org.apache.ibatis.session.SqlSessionFactory;
+import org.mybatis.spring.SqlSessionFactoryBean;
+import org.mybatis.spring.annotation.MapperScan;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
+
+import javax.sql.DataSource;
+
+@Configuration
+@MapperScan(value="org.fhp.springmybatis.dao")
+public class DaoConfig {
+
+    @Value("${jdbc.driverClass}")
+    private String driverClass;
+
+    @Value("${jdbc.user}")
+    private String user;
+
+    @Value("${jdbc.password}")
+    private String password;
+
+    @Value("${jdbc.jdbcUrl}")
+    private String jdbcUrl;
+
+    @Bean
+    public DataSource dataSource() {
+        DriverManagerDataSource dataSource = new DriverManagerDataSource();
+        dataSource.setDriverClassName(driverClass);
+        dataSource.setUsername(user);
+        dataSource.setPassword(password);
+        dataSource.setUrl(jdbcUrl);
+        return dataSource;
+    }
+
+    @Bean
+    public DataSourceTransactionManager transactionManager() {
+        return new DataSourceTransactionManager(dataSource());
+    }
+
+    @Bean
+    public SqlSessionFactory sqlSessionFactory() throws Exception {
+        SqlSessionFactoryBean sessionFactory = new SqlSessionFactoryBean();
+        sessionFactory.setDataSource(dataSource());
+        return sessionFactory.getObject();
+    }
+}
+
+至此Spring的配置完成。
+现在，我们假设有如下实体类。
+
+清单7 实体类定义
+
+package org.fhp.springmybatis.entity;
+
+public class Person {
+    private long id;
+    private String name;
+    private String nick;
+
+    public long getId() {
+        return id;
+    }
+    public void setId(long id) {
+        this.id = id;
+    }
+    public String getName() {
+        return name;
+    }
+    public void setName(String name) {
+        this.name = name;
+    }
+    public String getNick() {
+        return nick;
+    }
+    public void setNick(String nick) {
+        this.nick = nick;
+    }
+}
+
+由于在清单6中@MapperScan规定了扫描Mapper的包为org.fhp.springmybatis.dao，因此我们只要将mapper配置类放在这个包下，MyBatis即可自动识别。
+清单8 Mapper的配置
+
+package org.fhp.springmybatis.dao;
+
+import java.util.List;
+
+import org.apache.ibatis.annotations.Delete;
+import org.apache.ibatis.annotations.Insert;
+import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Result;
+import org.apache.ibatis.annotations.Results;
+import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.SelectProvider;
+import org.apache.ibatis.annotations.Update;
+import org.fhp.springmybatis.entity.Person;
+
+public interface PersonDao {
+
+    @Insert(value="insert into t_person(name, nick) values (#{name}, #{nick})")
+    void add(Person person);
+
+    @Delete(value="delete from t_person where id=#{id}")
+    void delete(long id);
+
+    @Update(value="update t_person set name=#{name}, nick=#{nick} where id=#{id}")
+    void update(Person person);
+
+    @Select(value="select * from t_person where id=#{id}")
+    Person select(long id);
+}
+
+可以看到，通过@Insert，@Delete，@Update，@Select注解加SQL语句的配置，即可实现MyBatis对数据库的增删改查操作。
+那么假如需要动态地生成SQL语句，该怎么办呢？答案是使用MyBatis提供的@InsertProvider，@DeleteProvider，@UpdateProvider，@SelectProvider注解，当然也是对应数据库的增删改查。这里以@SelectProvider为例。
+
+首先定义一个Provider类。
+
+清单9 Provider类
+
+public class PersonSqlProvider {
+    public String selectByNameAndNick(@Param("name") String name, @Param("nick") String nick) {
+        StringBuffer sb = new StringBuffer();
+        sb.append("select * from t_person where ");
+        sb.append("name=#{name}");
+        sb.append(" and ");
+        sb.append("nick=#{nick}");
+        return sb.toString();
+    }
+}
+然后就要有请我们的@SelectProvider出场了。
+
+清单10 使用@SelectProvider
+
+@SelectProvider(type=PersonSqlProvider.class, method="selectByNameAndNick")
+List<person> selectByNameAndNick(@Param("name") String name, @Param("nick") String nick);</person>
+
+当然，在本例当中即使不用Provider也是能够实现的，这里只是为了演示Provider的效果。我们可以看到，SQL语句由程序拼接，自然可以实现动态SQL中if条件判断以及SQL当中in语句等复杂语句的拼接，而且一定程度上比用XML更灵活。
+综上，本文介绍了Spring与MyBatis整合的另一种思路——纯注解无XML的配置方法。随着越来越多的框架都逐渐采用注解进行配置，可以说无XML配置已经成为一种趋势。如果你已经用上了Spring 4，不妨尝试一下这样的方法，你一定会感到很满意的。
+
+
+
+
+////////////////////////////
+
+
+
+本章将涵盖以下话题：
+l 在映射器Mapper接口上使用注解
+l 映射语句
+           @Insert，@Update，@Delete,@SeelctStatements
+l 结果映射
+           一对一映射
+           一对多映射
+l 动态SQL
+           @SelectProvider
+           @InsertProvider
+           @UpdateProvider
+           @DeleteProvider
+
+4.1 在映射器Mapper接口上使用注解
+    MyBatis对于大部分的基于XML的映射器元素（包括<select>,<update>）提供了对应的基于注解的配置项。然而在某些情况下，基于注解配置 还不能支持基于XML的一些元素。
+4.2 映射语句
+MyBatis提供了多种注解来支持不同类型的语句(statement)如SELECT,INSERT,UPDATE,DELETE。让我们看一下具体怎样配置映射语句。
+4.2.1 @Insert
+我们可以使用@Insert注解来定义一个INSERT映射语句：
+[java] view plain copy  在CODE上查看代码片派生到我的代码片
+package com.mybatis3.mappers;
+public interface StudentMapper
+{
+    @Insert("INSERT INTO STUDENTS(STUD_ID,NAME,EMAIL,ADDR_ID, PHONE)
+            VALUES(#{studId},#{name},#{email},#{address.addrId},#{phone})")
+    int insertStudent(Student student);
+}
+使用了@Insert注解的insertMethod()方法将返回insert语句执行后影响的行数。
+[自动生成主键]
+在上一章中我们讨论过主键列值可以自动生成。我们可以使用@Options注解的userGeneratedKeys 和keyProperty属性让数据库产生auto_increment（自增长）列的值，然后将生成的值设置到输入参数对象的属性中。
+[java] view plain copy  在CODE上查看代码片派生到我的代码片
+@Insert("INSERT INTO STUDENTS(NAME,EMAIL,ADDR_ID, PHONE)
+        VALUES(#{name},#{email},#{address.addrId},#{phone})")
+@Options(useGeneratedKeys = true, keyProperty = "studId")
+int insertStudent(Student student);
+
+这里STUD_ID列值将会通过MySQL数据库自动生成。并且生成的值将会被设置到student对象的studId属性中。
+[java] view plain copy  在CODE上查看代码片派生到我的代码片
+StudentMapper mapper = sqlSession.getMapper(StudentMapper.class);
+mapper.insertStudent(student);
+int studentId = student.getStudId();
+
+有一些数据库如Oracle，并不支持AUTO_INCREMENT列属性，它使用序列（SEQUENCE）来产生主键的值。
+我们可以使用@SelectKey注解来为任意SQL语句来指定主键值，作为主键列的值。
+假设我们有一个名为STUD_ID_SEQ的序列来生成STUD_ID主键值。
+[java] view plain copy  在CODE上查看代码片派生到我的代码片
+@Insert("INSERT INTO STUDENTS(STUD_ID,NAME,EMAIL,ADDR_ID, PHONE)
+VALUES(#{studId},#{name},#{email},#{address.addrId},#{phone})")
+@SelectKey(statement="SELECT STUD_ID_SEQ.NEXTVAL FROM DUAL",
+keyProperty="studId", resultType=int.class, before=true)
+int insertStudent(Student student);
+
+这里我们使用了@SelectKey来生成主键值，并且存储到了student对象的studId属性上。由于我们设置了before=true,该语句将会在执行INSERT语句之前执行。
+如果你使用序列作为触发器来设置主键值，我们可以在INSERT语句执行后，从sequence_name.currval获取数据库产生的主键值。
+[java] view plain copy  在CODE上查看代码片派生到我的代码片
+@Insert("INSERT INTO STUDENTS(NAME,EMAIL,ADDR_ID, PHONE)
+VALUES(#{name},#{email},#{address.addrId},#{phone})")
+@SelectKey(statement="SELECT STUD_ID_SEQ.CURRVAL FROM DUAL",
+keyProperty="studId", resultType=int.class, before=false)
+int insertStudent(Student student);
+
+4.2.2 @Update
+我们可以使用@Update注解来定义一个UPDATE映射语句，如下所示：
+[java] view plain copy  在CODE上查看代码片派生到我的代码片
+@Update("UPDATE STUDENTS SET NAME=#{name}, EMAIL=#{email},
+PHONE=#{phone} WHERE STUD_ID=#{studId}")
+int updateStudent(Student student);
+使用了@Update的updateStudent()方法将会返回执行了update语句后影响的行数。
+[java] view plain copy  在CODE上查看代码片派生到我的代码片
+StudentMapper mapper = sqlSession.getMapper(StudentMapper.class);
+int noOfRowsUpdated = mapper.updateStudent(student);
+
+4.2.3 @Delete
+我们可以使用@Delete  注解来定义一个DELETE映射语句，如下所示：
+[java] view plain copy  在CODE上查看代码片派生到我的代码片
+@Delete("DELETE FROM STUDENTS WHERE STUD_ID=#{studId}")
+int deleteStudent(int studId);
+使用了@Delete的deleteStudent()方法将会返回执行了update语句后影响的行数。
+4.2.4 @Select
+我们可以使用@ Select注解来定义一个SELECT映射语句。
+让我们看一下怎样使用注解配置一个简单的select查询。
+[java] view plain copy  在CODE上查看代码片派生到我的代码片
+package com.mybatis3.mappers;
+public interface StudentMapper
+{
+    @Select("SELECT STUD_ID AS STUDID, NAME, EMAIL, PHONE FROM
+            STUDENTS WHERE STUD_ID=#{studId}")
+    Student findStudentById(Integer studId);
+}
+
+为了将列名和Studentbean属性名匹配，我们为stud_id起了一个studId的别名。如果返回了多行结果，将抛出 TooManyResultsException异常。
+4.3 结果映射
+我们可以将查询结果通过别名或者是@Results注解与JavaBean属性映射起来。
+现在让我们看看怎样使用@Results注解将指定列于指定JavaBean属性映射器来，执行SELECT查询的：
+[java] view plain copy  在CODE上查看代码片派生到我的代码片
+package com.mybatis3.mappers;
+public interface StudentMapper
+{
+    @Select("SELECT * FROM STUDENTS")
+    @Results(
+    {
+        @Result(id = true, column = "stud_id", property = "studId"),
+        @Result(column = "name", property = "name"),
+        @Result(column = "email", property = "email"),
+        @Result(column = "addr_id", property = "address.addrId")
+    })
+    List<Student> findAllStudents();
+}
+
+例如，看下面的findStudentById()和findAllStudents()方法：
+[java] view plain copy  在CODE上查看代码片派生到我的代码片
+@Select("SELECT * FROM STUDENTS WHERE STUD_ID=#{studId}")
+@Results(
+{
+    @Result(id = true, column = "stud_id", property = "studId"),
+    @Result(column = "name", property = "name"),
+    @Result(column = "email", property = "email"),
+    @Result(column = "addr_id", property = "address.addrId")
+})
+Student findStudentById(int studId);
+@Select("SELECT * FROM STUDENTS")
+@Results(
+{
+    @Result(id = true, column = "stud_id", property = "studId"),
+    @Result(column = "name", property = "name"),
+    @Result(column = "email", property = "email"),
+    @Result(column = "addr_id", property = "address.addrId")
+})
+List<Student> findAllStudents();
+
+这里两个语句的@Results配置完全相同，但是我必须得重复它。这里有一个解决方法。我们可以创建一个映射器Mapper配置文件， 然后配置<resultMap>元素，然后使用@ResultMap注解引用此<resultMap>。
+在StudentMapper.xml中定义一个ID为StudentResult的<resultMap>。
+[html] view plain copy  在CODE上查看代码片派生到我的代码片
+<mapper namespace="com.mybatis3.mappers.StudentMapper">
+  <resultMap type="Student" id="StudentResult">
+    <id property="studId" column="stud_id" />
+    <result property="name" column="name" />
+    <result property="email" column="email" />
+    <result property="phone" column="phone" />
+  </resultMap>
+</mapper>
+
+在StudentMapper.java中，使用@ResultMap引用名为StudentResult的resultMap。
+[java] view plain copy  在CODE上查看代码片派生到我的代码片
+public interface StudentMapper
+{
+    @Select("SELECT * FROM STUDENTS WHERE STUD_ID=#{studId}")
+    @ResultMap("com.mybatis3.mappers.StudentMapper.StudentResult")
+    Student findStudentById(int studId);
+    @Select("SELECT * FROM STUDENTS")
+    @ResultMap("com.mybatis3.mappers.StudentMapper.StudentResult")
+    List<Student> findAllStudents();
+}
+
+4.3.1 一对一映射
+MyBatis提供了@One注解来使用嵌套select语句（Nested-Select）加载一对一关联查询数据。让我们看看怎样使用@One注解获取学生及其地址信息。
+[java] view plain copy  在CODE上查看代码片派生到我的代码片
+public interface StudentMapper
+{
+    @Select("SELECT ADDR_ID AS ADDRID, STREET, CITY, STATE, ZIP, COUNTRY
+            FROM ADDRESSES WHERE ADDR_ID=#{id}")
+    Address findAddressById(int id);
+    @Select("SELECT * FROM STUDENTS WHERE STUD_ID=#{studId} ")
+    @Results(
+    {
+        @Result(id = true, column = "stud_id", property = "studId"),
+        @Result(column = "name", property = "name"),
+        @Result(column = "email", property = "email"),
+        @Result(property = "address", column = "addr_id",
+        one = @One(select = "com.mybatis3.mappers.StudentMapper.
+        findAddressById"))
+    })
+    Student selectStudentWithAddress(int studId);
+}
+
+这里我们使用了@One注解的select属性来指定一个使用了完全限定名的方法上，该方法会返回一个Address对象。使用column=”addr_id”,则STUEDNTS表中列addr_id的值将会作为输入参数传递给findAddressById()方法。如果@OneSELECT查询返回了多行结果，则会抛出TooManyResultsException异常。
+[java] view plain copy  在CODE上查看代码片派生到我的代码片
+int studId = 1;
+StudentMapper studentMapper =
+sqlSession.getMapper(StudentMapper.class);
+Student student = studentMapper.selectStudentWithAddress(studId);
+System.out.println("Student :"+student);
+System.out.println("Address :"+student.getAddress());
+
+在第三章，使用XML配置SQL映射器中我们讨论过，我们可以通过基于XML的映射器配置，使用嵌套结果ResultMap来加载一对一关联的查询。而MyBatis3.2.2版本，并没有对应的注解支持。但是我们可以在映射器Mapper配置文件中配置<resultMap>并且使用@ResultMap注解来引用它。
+在StudentMapper.xml中配置<resultMap>，如下所示：
+[html] view plain copy  在CODE上查看代码片派生到我的代码片
+<mapper namespace="com.mybatis3.mappers.StudentMapper">
+  <resultMap type="Address" id="AddressResult">
+    <id property="addrId" column="addr_id" />
+    <result property="street" column="street" />
+    <result property="city" column="city" />
+    <result property="state" column="state" />
+    <result property="zip" column="zip" />
+    <result property="country" column="country" />
+  </resultMap>
+  <resultMap type="Student" id="StudentWithAddressResult">
+    <id property="studId" column="stud_id" />
+    <result property="name" column="name" />
+    <result property="email" column="email" />
+    <association property="address" resultMap="AddressResult" />
+  </resultMap>
+</mapper>
+
+[java] view plain copy  在CODE上查看代码片派生到我的代码片
+public interface StudentMapper
+{
+    @Select("select stud_id, name, email, a.addr_id, street, city,
+            state, zip, country" + " FROM students s left outer join addresses a
+            on s.addr_id=a.addr_id" + " where stud_id=#{studId} ")
+    @ResultMap("com.mybatis3.mappers.StudentMapper.
+               StudentWithAddressResult")
+    Student selectStudentWithAddress(int id);
+}
+
+4.3.2 一对多映射
+MyBatis提供了@Many注解，用来使用嵌套Select语句加载一对多关联查询。
+现在让我们看一下如何使用@Many注解获取一个讲师及其教授课程列表信息：
+[java] view plain copy  在CODE上查看代码片派生到我的代码片
+public interface TutorMapper
+{
+    @Select("select addr_id as addrId, street, city, state, zip,
+            country from addresses where addr_id=#{id}")
+    Address findAddressById(int id);
+    @Select("select * from courses where tutor_id=#{tutorId}")
+    @Results(
+    {
+        @Result(id = true, column = "course_id", property = "courseId"),
+        @Result(column = "name", property = "name"),
+        @Result(column = "description", property = "description"),
+        @Result(column = "start_date" property = "startDate"),
+        @Result(column = "end_date" property = "endDate")
+    })
+    List<Course> findCoursesByTutorId(int tutorId);
+    @Select("SELECT tutor_id, name as tutor_name, email, addr_id
+            FROM tutors where tutor_id=#{tutorId}")
+    @Results(
+    {
+        @Result(id = true, column = "tutor_id", property = "tutorId"),
+        @Result(column = "tutor_name", property = "name"),
+        @Result(column = "email", property = "email"),
+        @Result(property = "address", column = "addr_id",
+        one = @One(select = " com.mybatis3.
+        mappers.TutorMapper.findAddressById")),
+        @Result(property = "courses", column = "tutor_id",
+        many = @Many(select = "com.mybatis3.mappers.TutorMapper.
+        findCoursesByTutorId"))
+    })
+    Tutor findTutorById(int tutorId);
+}
+
+这里我们使用了@Many注解的select属性来指向一个完全限定名称的方法，该方法将返回一个List<Course>对象。使用column=”tutor_id”，TUTORS表中的tutor_id列值将会作为输入参数传递给findCoursesByTutorId()方法。
+在第三章，使用XML配置SQL映射器中我们讨论过，我们可以通过基于XML的映射器配置，使用嵌套结果ResultMap来加载一对多关联的查询。而MyBatis3.2.2版本，并没有对应的注解支持。但是我们可以在映射器Mapper配置文件中配置<resultMap>并且使用@ResultMap注解来引用它。
+在TutorMapper.xml中配置<resultMap>,如下所示：
+[html] view plain copy  在CODE上查看代码片派生到我的代码片
+<mapper namespace="com.mybatis3.mappers.TutorMapper">
+  <resultMap type="Address" id="AddressResult">
+    <id property="addrId" column="addr_id" />
+    <result property="street" column="street" />
+    <result property="city" column="city" />
+    <result property="state" column="state" />
+    <result property="zip" column="zip" />
+    <result property="country" column="country" />
+  </resultMap>
+  <resultMap type="Course" id="CourseResult">
+    <id column="course_id" property="courseId" />
+    <result column="name" property="name" />
+    <result column="description" property="description" />
+    <result column="start_date" property="startDate" />
+    <result column="end_date" property="endDate" />
+  </resultMap>
+  <resultMap type="Tutor" id="TutorResult">
+    <id column="tutor_id" property="tutorId" />
+    <result column="tutor_name" property="name" />
+    <result column="email" property="email" />
+    <association property="address" resultMap="AddressResult" />
+    <collection property="courses" resultMap="CourseResult" />
+  </resultMap>
+</mapper>
+
+[java] view plain copy  在CODE上查看代码片派生到我的代码片
+public interface TutorMapper
+{
+    @Select("SELECT T.TUTOR_ID, T.NAME AS TUTOR_NAME, EMAIL,
+            A.ADDR_ID, STREET, CITY, STATE, ZIP, COUNTRY, COURSE_ID, C.NAME,
+            DESCRIPTION, START_DATE, END_DATE  FROM TUTORS T LEFT OUTER
+            JOIN ADDRESSES A ON T.ADDR_ID=A.ADDR_ID LEFT OUTER JOIN COURSES
+            C ON T.TUTOR_ID=C.TUTOR_ID WHERE T.TUTOR_ID=#{tutorId}")
+    @ResultMap("com.mybatis3.mappers.TutorMapper.TutorResult")
+    Tutor selectTutorById(int tutorId);
+}
+
+4.4 动态SQL
+有时候我们需要根据输入条件动态地构建SQL语句。MyBatis提供了各种注解如@InsertProvider,@UpdateProvider,@DeleteProvider和@SelectProvider，来帮助构建动态SQL语句，然后让MyBatis执行这些SQL语句。
+4.4.1 @SelectProvider
+现在让我们来看一个使用@SelectProvider注解来创建一个简单的SELECT映射语句的例子。
+创建一个TutorDynaSqlProvider.java类，以及findTutorByIdSql()方法，如下所示：
+[java] view plain copy  在CODE上查看代码片派生到我的代码片
+package com.mybatis3.sqlproviders;
+import org.apache.ibatis.jdbc.SQL;
+public class TutorDynaSqlProvider
+{
+    public String findTutorByIdSql(int tutorId)
+    {
+        return "SELECT TUTOR_ID AS tutorId, NAME, EMAIL FROM TUTORS
+               WHERE TUTOR_ID=" + tutorId;
+    }
+}
+在TutorMapper.java接口中创建一个映射语句，如下：
+[java] view plain copy  在CODE上查看代码片派生到我的代码片
+@SelectProvider(type=TutorDynaSqlProvider.class, method="findTutorByIdSql")
+Tutor findTutorById(int tutorId);
+这里我们使用了@SelectProvider来指定了一个类，及其内部的方法，用来提供需要执行的SQL语句。
+但是使用字符串拼接的方法唉构建SQL语句是非常困难的，并且容易出错。所以MyBaits提供了一个SQL工具类不使用字符串拼接的方式，简化构造动态SQL语句。
+现在，让我们看看如何使用org.apache.ibatis.jdbc.SQL工具类来准备相同的SQL语句。
+[java] view plain copy  在CODE上查看代码片派生到我的代码片
+package com.mybatis3.sqlproviders;
+import org.apache.ibatis.jdbc.SQL;
+public class TutorDynaSqlProvider
+{
+    public String findTutorByIdSql(final int tutorId)
+    {
+        return new SQL()
+        {
+            {
+                SELECT("tutor_id as tutorId, name, email");
+                FROM("tutors");
+                WHERE("tutor_id=" + tutorId);
+            }
+        } .toString();
+    }
+}
+
+SQL工具类会处理以合适的空格前缀和后缀来构造SQL语句。
+动态SQL provider方法可以接收以下其中一种参数：
+           ž 无参数
+           ž 和映射器Mapper接口的方法同类型的参数
+           ž java.util.Map
+
+如果SQL语句的准备不取决于输入参数，你可以使用不带参数的SQL Provider方法。
+例如：
+[java] view plain copy  在CODE上查看代码片派生到我的代码片
+public String findTutorByIdSql()
+{
+    return new SQL()
+    {
+        {
+            SELECT("tutor_id as tutorId, name, email");
+            FROM("tutors");
+            WHERE("tutor_id = #{tutorId}");
+        }
+    } .toString();
+}
+
+这里我们没有使用输入参数构造SQL语句，所以它可以是一个无参方法。
+如果映射器Mapper接口方法只有一个参数，那么可以定义SQLProvider方法，它接受一个与Mapper接口方法相同类型的参数。
+例如映射器Mapper接口有如下定义：
+[java] view plain copy  在CODE上查看代码片派生到我的代码片
+<span style="font-family:Microsoft YaHei;font-size:12px;">Tutor findTutorById(int tutorId);</span>
+这里findTutorById(int)方法只有一个int类型的参数。我们可以定义findTutorByIdSql(int)方法作为SQL provider方法。
+[java] view plain copy  在CODE上查看代码片派生到我的代码片
+public String findTutorByIdSql(final int tutorId)
+{
+    return new SQL()
+    {
+        {
+            SELECT("tutor_id as tutorId, name, email");
+            FROM("tutors");
+            WHERE("tutor_id=" + tutorId);
+        }
+    } .toString();
+}
+如果映射器Mapper接口有多个输入参数，我们可以使用参数类型为java.util.Map的方法作为SQLprovider方法。然后映射器Mapper接口方法所有的输入参数将会被放到map中，以param1,param2等等作为key，将输入参数按序作为value。你也可以使用0，1，2等作为key值来取的输入参数。
+[java] view plain copy  在CODE上查看代码片派生到我的代码片
+@SelectProvider(type = TutorDynaSqlProvider.class,
+                method = "findTutorByNameAndEmailSql")
+Tutor findTutorByNameAndEmail(String name, String email);
+public String findTutorByNameAndEmailSql(Map<String, Object> map)
+{
+    String name = (String) map.get("param1");
+    String email = (String) map.get("param2");
+    //you can also get those values using 0,1 keys
+    //String name = (String) map.get("0");
+    //String email = (String) map.get("1");
+    return new SQL()
+    {
+        {
+            SELECT("tutor_id as tutorId, name, email");
+            FROM("tutors");
+            WHERE("name=#{name} AND email=#{email}");
+        }
+    } .toString();
+}
+SQL工具类也提供了其他的方法来表示JOINS，ORDER_BY，GROUP_BY等等。
+让我们看一个使用LEFT_OUTER_JOIN的例子：
+[java] view plain copy  在CODE上查看代码片派生到我的代码片
+public class TutorDynaSqlProvider
+{
+    public String selectTutorById()
+    {
+        return new SQL()
+        {
+            {
+                SELECT("t.tutor_id, t.name as tutor_name, email");
+                SELECT("a.addr_id, street, city, state, zip, country");
+                SELECT("course_id, c.name as course_name, description,
+                       start_date, end_date");
+                FROM("TUTORS t");
+                LEFT_OUTER_JOIN("addresses a on t.addr_id=a.addr_id");
+                LEFT_OUTER_JOIN("courses c on t.tutor_id=c.tutor_id");
+                WHERE("t.TUTOR_ID = #{id}");
+            }
+        } .toString();
+    }
+}
+
+public interface TutorMapper
+{
+    @SelectProvider(type = TutorDynaSqlProvider.class,
+                    method = "selectTutorById")
+    @ResultMap("com.mybatis3.mappers.TutorMapper.TutorResult")
+    Tutor selectTutorById(int tutorId);
+}
+由于没有支持使用内嵌结果ResultMap的一对多关联映射的注解支持，我们可以使用基于XML的<resultMap>配置，然后与@ResultMap映射。
+[html] view plain copy  在CODE上查看代码片派生到我的代码片
+<mapper namespace="com.mybatis3.mappers.TutorMapper">
+  <resultMap type="Address" id="AddressResult">
+    <id property="id" column="addr_id" />
+    <result property="street" column="street" />
+    <result property="city" column="city" />
+    <result property="state" column="state" />
+    <result property="zip" column="zip" />
+    <result property="country" column="country" />
+  </resultMap>
+  <resultMap type="Course" id="CourseResult">
+    <id column="course_id" property="id" />
+    <result column="course_name" property="name" />
+    <result column="description" property="description" />
+    <result column="start_date" property="startDate" />
+    <result column="end_date" property="endDate" />
+  </resultMap>
+  <resultMap type="Tutor" id="TutorResult">
+    <id column="tutor_id" property="id" />
+    <result column="tutor_name" property="name" />
+    <result column="email" property="email" />
+    <association property="address" resultMap="AddressResult" />
+    <collection property="courses" resultMap="CourseResult"></collection>
+  </resultMap>
+</mapper>
+使用了动态的SQL provider，我们可以取得讲师及其地址和课程明细。
+4.4.2 @InsertProvider
+我们可以使用@InsertProvider注解创建动态的INSERT语句，如下所示：
+[java] view plain copy  在CODE上查看代码片派生到我的代码片
+public class TutorDynaSqlProvider
+{
+    public String insertTutor(final Tutor tutor)
+    {
+        return new SQL()
+        {
+            {
+                INSERT_INTO("TUTORS");
+                if (tutor.getName() != null)
+                {
+                    VALUES("NAME", "#{name}");
+                }
+                if (tutor.getEmail() != null)
+                {
+                    VALUES("EMAIL", "#{email}");
+                }
+            }
+        } .toString();
+    }
+}
+public interface TutorMapper
+{
+    @InsertProvider(type = TutorDynaSqlProvider.class,
+                    method = "insertTutor")
+    @Options(useGeneratedKeys = true, keyProperty = "tutorId")
+    int insertTutor(Tutor tutor);
+}
+
+4.4.3 @UpdateProvider
+我们可以通过@UpdateProvider注解创建UPDATE语句，如下所示：
+[java] view plain copy  在CODE上查看代码片派生到我的代码片
+public class TutorDynaSqlProvider
+{
+    public String updateTutor(final Tutor tutor)
+    {
+        return new SQL()
+        {
+            {
+                UPDATE("TUTORS");
+                if (tutor.getName() != null)
+                {
+                    SET("NAME = #{name}");
+                }
+                if (tutor.getEmail() != null)
+                {
+                    SET("EMAIL = #{email}");
+                }
+                WHERE("TUTOR_ID = #{tutorId}");
+            }
+        } .toString();
+    }
+}
+public interface TutorMapper
+{
+    @UpdateProvider(type = TutorDynaSqlProvider.class,
+                    method = "updateTutor")
+    int updateTutor(Tutor tutor);
+}
+
+4.4.4 @DeleteProvider
+我们可以使用@DeleteProvider注解创建动态地DELETE语句,如下所示：
+[java] view plain copy  在CODE上查看代码片派生到我的代码片
+public class TutorDynaSqlProvider
+{
+    public String deleteTutor(int tutorId)
+    {
+        return new SQL()
+        {
+            {
+                DELETE_FROM("TUTORS");
+                WHERE("TUTOR_ID = #{tutorId}");
+            }
+        } .toString();
+    }
+}
+public interface TutorMapper
+{
+    @DeleteProvider(type = TutorDynaSqlProvider.class,
+                    method = "deleteTutor")
+    int deleteTutor(int tutorId);
+}
+4.5 总结
+在本章中，我们学习了怎样使用注解书写SQL映射语句。讨论了如何配置简单语句，一对一关系语句和一对多关系语句。我们还探讨了怎样使用SqlProvider注解来构建动态SQL语句。在下一章，我们将讨论如何将MyBatis与Spring框架集成。
+
+
+
+/////////////////////////////////////////////
+
+
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.springframework.org/schema/beans
+http://www.springframework.org/schema/beans/spring-beans-2.5.xsd">
+    <!-- 定义使用C3P0连接池的数据源 -->
+    <bean id="dataSource" class="com.mchange.v2.c3p0.ComboPooledDataSource">
+        <!-- 指定连接数据库的JDBC驱动 -->
+        <property name="driverClass">
+            <value>com.mysql.jdbc.Driver</value>
+        </property>
+        <!-- 连接数据库所用的URL -->
+        <property name="jdbcUrl">
+            <value>jdbc:mysql://localhost:3306/eportal?useUnicode=
+                true&characterEncoding=gbk</value>
+        </property>
+        <!-- 连接数据库的用户名 -->
+        <property name="user">
+            <value>root</value>
+        </property>
+        <!-- 连接数据库的密码 -->
+        <property name="password">
+            <value>root</value>
+        </property>
+        <!-- 设置数据库连接池的最大连接数 -->
+        <property name="maxPoolSize">
+            <value>20</value>
+        </property>
+        <!-- 设置数据库连接池的最小连接数 -->
+        <property name="minPoolSize">
+            <value>2</value>
+        </property>
+        <!-- 设置数据库连接池的初始化连接数 -->
+        <property name="initialPoolSize">
+            <value>2</value>
+        </property>
+        <!-- 设置数据库连接池的连接的最大空闲时间，单位为秒 -->
+        <property name="maxIdleTime">
+            <value>20</value>
+        </property>
+    </bean>
+    <!-- 定义Hibernate的SessionFactory -->
+    <bean id="sessionFactory"
+        class="org.springframework.orm.
+hibernate3.LocalSessionFactoryBean">
+        <!-- 依赖注入上面定义的数据源dataSource -->
+        <property name="dataSource" ref="dataSource" />
+        <!-- 注册Hibernate的ORM映射文件 -->
+        <property name="mappingResources">
+            <list>
+                <value>com/eportal/ORM/News.hbm.xml</value>
+                <value>com/eportal/ORM/Category.hbm.xml</value>
+                <value>com/eportal/ORM/Memberlevel.hbm.xml</value>
+                <value>com/eportal/ORM/Cart.hbm.xml</value>
+                <value>com/eportal/ORM/Traffic.hbm.xml</value>
+                <value>com/eportal/ORM/Newsrule.hbm.xml</value>
+                <value>com/eportal/ORM/Merchandise.hbm.xml</value>
+                <value>com/eportal/ORM/Admin.hbm.xml</value>
+                <value>com/eportal/ORM/Orders.hbm.xml</value>
+                <value>com/eportal/ORM/Cartselectedmer.hbm.xml</value>
+                <value>com/eportal/ORM/Newscolumns.hbm.xml</value>
+                <value>com/eportal/ORM/Member.hbm.xml</value>
+            </list>
+        </property>
+        <!-- 设置Hibernate的相关属性 -->
+        <property name="hibernateProperties">
+            <props>
+                <!-- 设置Hibernate的数据库方言 -->
+                <prop key="hibernate.dialect">org.hibernate.dialect.MySQLDialect</prop>
+                <!-- 设置Hibernate是否在控制台输出SQL语句，开发调试阶段通常设为true -->
+                <prop key="show_sql">true</prop>
+                <!-- 设置Hibernate一个提交批次中的最大SQL语句数 -->
+                <prop key="hibernate.jdbc.batch_size">50</prop>
+                <prop key="show_sql">50</prop>
+            </props>
+        </property>
+    </bean>
+    <!--定义Hibernate的事务管理器HibernateTransactionManager -->
+    <bean id="transactionManager"
+        class="org.springframework.orm.hibernate3.HibernateTransactionManager">
+        <!-- 依赖注入上面定义的sessionFactory -->
+        <property name="sessionFactory" ref="sessionFactory" />
+    </bean>
+    <!--定义Spring的事务拦截器TransactionInterceptor -->
+    <bean id="transactionInterceptor"
+        class="org.springframework.transaction.interceptor.TransactionInterceptor">
+        <!-- 依赖注入上面定义的事务管理器transactionManager -->
+        <property name="transactionManager" ref="transactionManager" />
+        <!-- 定义需要进行事务拦截的方法及所采用的事务控制类型 -->
+        <property name="transactionAttributes">
+            <props>
+                <!-- 以browse、list、load、get及is开头的所有方法采用只读型事务控制类型 -->
+                <prop key="browse*">PROPAGATION_REQUIRED,readOnly</prop>
+                <prop key="list*">PROPAGATION_REQUIRED,readOnly</prop>
+                <prop key="load*">PROPAGATION_REQUIRED,readOnly</prop>
+                <prop key="get*">PROPAGATION_REQUIRED,readOnly</prop>
+                <prop key="is*">PROPAGATION_REQUIRED,readOnly</prop>
+                <!-- 所有方法均进行事务控制，如果当前没有事务，则新建一个事务 -->
+                <prop key="*">PROPAGATION_REQUIRED</prop>
+            </props>
+        </property>
+    </bean>
+    <!-- 定义BeanNameAutoProxyCreatorf进行Spring的事务处理 -->
+    <bean
+        class="org.springframework.aop.framework.autoproxy.
+BeanNameAutoProxyCreator">
+        <!-- 针对指定的bean自动生成业务代理 -->
+        <property name="beanNames">
+            <list>
+                <value>adminService</value>
+                <value>columnsService</value>
+                <value>newsService</value>
+                <value>crawlService</value>
+                <value>memberLevelService</value>
+                <value>memberService</value>
+                <value>categoryService</value>
+                <value>merService</value>
+                <value>cartService</value>
+                <value>ordersService</value>
+                <value>trafficService</value>
+            </list>
+        </property>
+        <!-- 这个属性为true时，表示被代理的是目标类本身而不是目标类的接口 -->
+        <property name="proxyTargetClass">
+            <value>true</value>
+        </property>
+        <!-- 依赖注入上面定义的事务拦截器transactionInterceptor -->
+        <property name="interceptorNames">
+            <list>
+                <value>transactionInterceptor</value>
+            </list>
+        </property>
+    </bean>
+    <!-- 装配通用数据库访问类BaseDAOImpl -->
+    <bean id="dao" class="com.eportal.DAO.BaseDAOImpl">
+        <property name="sessionFactory" ref="sessionFactory" />
+    </bean>
+    <!-- 部署系统用户管理业务逻辑组件AdminServiceImpl -->
+    <bean id="adminService" class="com.eportal.service.AdminServiceImpl">
+        <property name="dao" ref="dao" />
+    </bean>
+    <!-- 部署新闻栏目管理业务逻辑组件ColumnsServiceImpl -->
+    <bean id="columnsService" class="com.eportal.service.ColumnsServiceImpl">
+        <property name="dao" ref="dao" />
+    </bean>
+
+    <!-- 部署订单管理业务逻辑组件OrderServiceImpl -->
+    <bean id="ordersService" class="com.eportal.service.OrderServiceImpl">
+        <property name="dao" ref="dao" />
+    </bean>
+    <!-- 部署流量统计业务逻辑组件TrafficServiceImpl -->
+    <bean id="trafficService" class="com.eportal.service.TrafficServiceImpl">
+        <property name="dao" ref="dao" />
+    </bean>
+    <!-- 部署Struts 2负责系统用户管理的控制器AdminAction -->
+    <bean id="adminAction" class="com.eportal.struts.action.
+AdminAction"
+        scope="prototype">
+        <property name="service" ref="adminService" />
+    </bean>
+    <!-- 部署Struts 2负责新闻栏目管理的控制器ColumnsAction -->
+    <bean id="columnsAction" class="com.eportal.struts.action.
+ColumnsAction"
+        scope="prototype">
+        <property name="service" ref="columnsService" />
+    </bean>
+    <!-- 部署Struts 2负责新闻管理的控制器NewsAction -->
+    <bean id="newsAction" class="com.eportal.struts.action.
+NewsAction"
+        scope="prototype">
+        <property name="service" ref="newsService" />
+        <property name="columnsService" ref="columnsService" />
+    </bean>
+    <!-- 部署Struts 2负责新闻采集规则管理的控制器CrawlAction -->
+    <bean id="crawlAction" class="com.eportal.struts.action.
+CrawlAction"
+        scope="prototype">
+        <property name="service" ref="crawlService" />
+        <property name="columnsService" ref="columnsService" />
+    </bean>
+
+</beans>
+
+
+===================================
+
+https://www.cnblogs.com/guscode/p/5518464.html
+spring4配置文件详解
+
+
+一、配置数据源
+基本的加载properties配置文件
+
+<context:property-placeholder location="classpath*:/appConfig.properties" />
+
+
+
+1、JNDI方式
+
+<jee:jndi-lookup id="dataSource" jndi-name="/jdbc/mysqlDS" resource-ref="true"/>
+
+l  jndi-name：指定JNDI中资源名称
+
+l  resource-ref：如果应用程序运行在java应用程序服务器中，值设为true，这样jndi-name会自动加上java:comp/env/前缀
+
+
+
+2、数据连接池方式
+
+DBCP连接池：
+
+使用：org.apache.commons.dbcp.BasicDataSource进行配置
+
+<bean id="dataSource" class="org.apache.commons.dbcp.BasicDataSource" destroy-method="close">
+
+   <!-- 【必须】  数据库驱动-->
+
+   <property name="driverClassName" value="${jdbc.driver}" />
+
+   <!-- 【必须】 数据库连接地址 -->
+
+   <property name="url" value="${jdbc.url}" />
+
+   <!-- 【必须】 数据库用户名 -->
+
+   <property name="username" value="${jdbc.username}" />
+
+   <!-- 【必须】 数据库密码 -->
+
+   <property name="password" value="${jdbc.password}" />
+
+   <!-- 可选 启动时创建的连接数 -->
+
+   <property name="initialSize" value="5"/>
+
+   <!-- 可选 同时可从池中分配的最多连接数，0无限制 -->
+
+   <property name="maxActive" value="10"/>
+
+   <!-- 可选 池中不会被释放的最多空闲连接数 0无限制 -->
+
+   <property name="maxIdle" value=""/>
+
+   <!-- 可选 同时能从语句池中分配的预处理语句最大值，0无限制 -->
+
+   <property name="maxOpenPreparedStatement" value="100"/>
+
+   <!-- 可选 抛异常前池等待连接回收最大时间（当无可用连接），-1无限等待 -->
+
+   <property name="maxWait" value="1000"/>
+
+   <!-- 可选 连接在池中保持空闲而不被回收的最大时间 -->
+
+   <property name="minEvictableIdleTimeMillis" value="2000"/>
+
+   <!-- 可选 不创建新连接情况下池中保持空闲的最小连接数 -->
+
+   <property name="minIdle" value="2"/>
+
+   <!-- 可选 布尔值，是否对预处理语句进行池管理 -->
+
+   <property name="poolPreparedStatements" value="true"/>
+
+</bean>
+
+
+
+
+
+C3P0连接池：
+
+使用：com.mchange.v2.c3p0.ComboPooledDataSource进行配置
+
+<bean id="dataSource" class="com.mchange.v2.c3p0.ComboPooledDataSource" destroy-method="close">
+
+   <property name="driverClass" value="${jdbc.driver}" />
+
+   <property name="jdbcUrl" value="${jdbc.url}" />
+
+   <property name="user" value="${jdbc.username}" />
+
+   <property name="password" value="${jdbc.password}" />
+
+</bean>
+
+
+
+alibaba DRUID连接池：
+
+使用：com.alibaba.druid.pool.DruidDataSource进行配置
+
+<bean id="dataSource" class="com.alibaba.druid.pool.DruidDataSource" init-method="init" destroy-method="close">
+
+    <!-- 基本属性 url、user、password -->
+
+    <property name="url" value="${jdbc_url}" />
+
+    <property name="username" value="${jdbc_user}" />
+
+    <property name="password" value="${jdbc_password}" />
+
+    <!-- 配置初始化大小、最小、最大 -->
+
+    <property name="initialSize" value="1" />
+
+    <property name="minIdle" value="1" />
+
+    <property name="maxActive" value="20" />
+
+    <!-- 配置获取连接等待超时的时间 -->
+
+    <property name="maxWait" value="60000" />
+
+    <!-- 配置间隔多久才进行一次检测，检测需要关闭的空闲连接，单位是毫秒 -->
+
+    <property name="timeBetweenEvictionRunsMillis" value="60000" />
+
+    <!-- 配置一个连接在池中最小生存的时间，单位是毫秒 -->
+
+    <property name="minEvictableIdleTimeMillis" value="300000" />
+
+    <property name="validationQuery" value="SELECT 'x'" />
+
+    <property name="testWhileIdle" value="true" />
+
+    <property name="testOnBorrow" value="false" />
+
+    <property name="testOnReturn" value="false" />
+
+    <!-- 打开PSCache，并且指定每个连接上PSCache的大小 -->
+
+    <property name="poolPreparedStatements" value="true" />
+
+    <property name="maxPoolPreparedStatementPerConnectionSize" value="20" />
+
+    <!-- 配置监控统计拦截的filters，去掉后监控界面sql无法统计 -->
+
+    <property name="filters" value="stat" />
+
+</bean>
+
+
+
+
+
+3、JDBC驱动的数据源
+
+使用：
+
+org.springframework.jdbc.datasource.SingleConnectionDataSource【每个链接请求会返回同一个连接，不推荐】
+
+org.springframework.jdbc.datasource.DriverManagerDataSource进行配置
+
+<bean id="dataSource" class="org.springframework.jdbc.datasource.DriverManagerDataSource">
+
+   <property name="driverClassName" value="${jdbc.driver}" />
+
+   <property name="url" value="${jdbc.url}" />
+
+   <property name="username" value="${jdbc.username}" />
+
+   <property name="password" value="${jdbc.password}" />
+
+</bean>
+
+
+
+二、操作数据库
+1、spring JDBC模板
+
+模板类选择：
+
+JdbcTemplate：提供最简单的数据访问等功能。
+
+NamedParameterJdbcTemplate：通过该模板，可以把参数作为查询的条件传入方法中。
+
+SimpleJdbcTemplate（推荐）：结合了一些自动装箱等功能，2.5以后，整合了NamedParameterJdbcTemplate。
+
+配置方式：
+
+<bean id="jdbcTemplate" class="org.springframework.jdbc.core.simple.SimpleJdbcTemplate">
+
+   <constructor-arg ref="dataSource"/>
+
+</bean>
+
+
+
+2、与ORM框架集成
+
+    主要是配置spring的Session工厂（sessionFactory），可以使用到诸如延迟加载、预先抓取、级联复杂特性。
+
+spring对ORM框架的支持提供提供了一些附加服务：
+
+l  spring声明式事务集成支持
+
+l  透明的异常处理
+
+l  线程安全、轻量级的模板类
+
+l  DAO支持
+
+l  资源管理
+
+2.1、集成Hibernate方式：[hibernate4为例]
+
+hibernate的HBM文件配置方式（Xxx.hbm.xml)：
+
+<bean id="sessionFactory" class="org.springframework.orm.hibernate4.LocalSessionFactoryBean">
+
+   <!-- 数据源 -->
+
+   <property name="dataSource" ref="dataSource" />
+
+   <!-- 映射文件形式-->
+
+   <property name="mappingResources">
+
+      <list>
+
+         <value>User.hbm.xml</value>
+
+      </list>
+
+   </property>
+
+   <!-- Hibernate属性配置 -->
+
+   <property name="hibernateProperties">
+
+      <props>
+
+         <prop key="dialect">
+
+org.hibernate.dialect.MySQLDialect</prop><!-- 数据库方言 -->
+
+         <!-- ……其他 -->
+
+      </props>
+
+   </property>
+
+</bean>
+
+
+
+代码中使用注解的方式：
+
+<bean id="sessionFactory" class="org.springframework.orm.hibernate4.LocalSessionFactoryBean">
+
+   <!-- 数据源 -->
+
+   <property name="dataSource" ref="dataSource" />
+
+   <!-- 自动扫描实体对象 tdxy.bean的包结构中存放实体类  -->
+
+   <property name="packagesToScan" value="com.test.entity"/>
+
+   <!-- hibernate的相关属性配置 -->
+
+   <property name="hibernateProperties">
+
+      <value>
+
+         <!-- 设置数据库方言 -->
+
+         hibernate.dialect=org.hibernate.dialect.MySQLDialect
+
+         <!-- 设置自动创建|更新|验证数据库表结构 -->
+
+         hibernate.hbm2ddl.auto=update
+
+         <!-- 是否在控制台显示sql -->
+
+         hibernate.show_sql=true
+
+         <!-- 是否格式化sql，优化显示 -->
+
+         hibernate.format_sql=true
+
+         <!-- 是否开启二级缓存 -->
+
+         hibernate.cache.use_second_level_cache=false
+
+         <!-- 是否开启查询缓存 -->
+
+         hibernate.cache.use_query_cache=false
+
+         <!-- 数据库批量查询最大数 -->
+
+         hibernate.jdbc.fetch_size=50
+
+         <!-- 数据库批量更新、添加、删除操作最大数  -->
+
+         hibernate.jdbc.batch_size=50
+
+         <!-- 是否自动提交事务  -->
+
+         hibernate.connection.autocommit=true
+
+         <!-- 指定hibernate在何时释放JDBC连接  -->
+
+         hibernate.connection.release_mode=auto
+
+         <!-- 创建session方式 hibernate4.x 的方式  -->
+
+         hibernate.current_session_context_class=org.springframework.orm.hibernate4.SpringSessionContext
+
+         <!-- javax.persistence.validation.mode默认情况下是auto的，就是说如果不设置的话它是会自动去你的classpath下面找一个bean-validation**包，所以把它设置为none即可  -->
+
+         javax.persistence.validation.mode=none
+
+      </value>
+
+   </property>
+
+</bean>
+
+
+
+针对少量实体类，还可以通过annotatedClasses属性来讲应用程序中所有的持久化类以全局定名的方式明确列出：
+
+<property name="annotatedClasses">
+
+   <list>
+
+      <value>com.demo.entity.User</value>
+
+      <value>com.demo.entity.Blog</value>
+
+   </list>
+
+</property>
+
+推荐使用packagesToScan属性扫描包方式。
+
+
+
+【构建不依赖于spring的Hibernate代码】
+
+package com.demo.dao;
+
+
+
+import org.hibernate.Session;
+
+import org.hibernate.SessionFactory;
+
+import org.springframework.beans.factory.annotation.Autowired;
+
+import org.springframework.stereotype.Repository;
+
+
+
+import com.demo.entity.User;
+
+
+
+@Repository
+
+public class UserDaoImpl implements IUserDao  {
+
+
+
+   private SessionFactory sessionFactory;
+
+
+
+   // 构造注入
+
+   @Autowired
+
+   public UserDaoImpl(SessionFactory sessionFactory) {
+
+      this.sessionFactory = sessionFactory;
+
+   }
+
+
+
+   private Session currentSession(){
+
+      return sessionFactory.getCurrentSession();
+
+   }
+
+
+
+   @Override
+
+   public void addUser(User param) {
+
+      Session session = currentSession();
+
+      session.save(param);
+
+      System.out.println("Add User");
+
+   }
+
+
+
+   @Override
+
+   public User get(Integer id) {
+
+      return (User) currentSession().get(User.class, id);
+
+   }
+
+
+
+   @Override
+
+   public void save(User user) {
+
+      currentSession().update(user);
+
+   }
+
+}
+
+
+
+还需配置：
+
+<context:component-scan base-package="com.demo.dao"/>
+
+就会像扫描其他注解一样扫描带@Repository注解的类到容器中。
+
+
+
+2.2、集成MyBatis方式
+
+<bean id="sqlSessionFactory" class="org.mybatis.spring.SqlSessionFactoryBean"
+
+   p:dataSource-ref="dataSource" p:configLocation="classpath:mybatis-config.xml"
+
+   p:mapperLocations="classpath:com/demo/dao/*.xml" />
+
+<!-- spring与mybatis整合配置，扫描所有dao -->
+
+<bean class="org.mybatis.spring.mapper.MapperScannerConfigurer"
+
+   p:basePackage="com.demo.dao" p:sqlSessionFactoryBeanName="sqlSessionFactory" />
+
+
+
+3、与其他JPA集成方式
+
+3.1、配置实体管理工厂
+
+l  应用程序管理类型的JPA（LocalEntityManagerFactoryBean）：它的EntityManager是由EntityManagerFactory创建的；
+
+l  容器管理类型的JPA（LocalContainerEntityManagerFactoryBean）：通过PersistenceProvider的createEntityManagerFactory()方法得到，即它的EntityManagerFactory是通过PersistenceProvider的createContainerEntityManagerFactory()方法得到。
+
+3.1.1、使用应用程序管理类型的JPA
+
+绝大部分配置文件来源于名为persistence.xml的配置文件，这个文件位置必须位于类路径下的WETA-INF目录下
+
+<?xml version="1.0" encoding="UTF-8"?>
+
+<persistence version="2.0"
+
+      xmlns="http://java.sun.com/xml/ns/persistence"
+
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+
+      xsi:schemaLocation="http://java.sun.com/xml/ns/persistence http://java.sun.com/xml/ns/persistence/persistence_2_0.xsd">
+
+
+
+   <persistence-unit name="persistenceUnit" transaction-type="RESOURCE_LOCAL">
+
+      <provider>org.hibernate.jpa.HibernatePersistenceProvider</provider>
+
+      <properties>
+
+         <property name="hibernate.dialect" value="org.hibernate.dialect.MySQL5Dialect" />
+
+         <property name="hibernate.max_fetch_depth" value="3"/>
+
+         <property name="hibernate.hbm2ddl.auto" value="update"/>
+
+         <property name="hibernate.jdbc.fetch_size" value="18"/>
+
+         <property name="hibernate.jdbc.batch_size" value="10"/>
+
+         <property name="hibernate.show_sql" value="false"/>
+
+         <property name="hibernate.format_sql" value="false"/>
+
+      </properties>
+
+      <class>com.demo.entity.User</class>
+
+      <class>com.demo.entity.Blog</class>
+
+      <!-- …… ……-->
+
+    </persistence-unit>
+
+ </persistence>
+
+这样在spring的配置文件中配置的信息就很少了：
+
+<bean id="demo" class="org.springframework.orm.jpa.LocalEntityManagerFactoryBean">
+
+   <property name="persistenceUnit" >
+
+</bean>
+
+
+
+【TIPS】上面persistence.xml文件中的配置会出现问题：
+
+如果每次请求EntityManagerFactory时都要定义持久化单元，代码回迅速膨胀，
+
+借助spring对JPA的支持，不再需要直接处理PersistenceProvider了，就是下面的容器管理的JPA！
+
+
+
+3.1.2、使用容器管理类型的JPA
+
+    将数据源信息配置在spring的应用上下文中，而不是在persistence.xml文件中。
+
+<bean id="emf" class="org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean">
+
+   <property name="dataSource" ref="dataSource"/>
+
+    <!-- 指定使用的是哪一个厂商的JPA实现 如Hibernate -->
+
+   <property name="jpaVendorAdapter" ref="hibernateJpaVendorAdapter"/>
+
+</bean>
+
+
+
+配置JPA实现：
+
+可选的有：EclipseLinkJpaVendorAdapter、HibernateJpaVendorAdapter、OpenJpaVendorAdapter、TopLinkJpaVendorAdapter
+
+<bean id="hibernateJpaVendorAdapter" class="org.springframework.orm.jpa.vendor.HibernateJpaVendorAdapter">
+
+   <property name="database" value="MYSQL"/>
+
+   <property name="showSql" value="true"/>
+
+   <property name="generateDdl" value="true"/>
+
+   <property name="databasePlatform" value="org.hibernate.dialect.MySQL5Dialect"/>
+
+</bean>
+
+
+
+【TIPS】database属性：属性值表示支持哪种数据库，下面Hibernate的JPA是一些支持的数据库：
+
+数据库平台
+
+属性databased 值
+
+IBM DB2
+
+DB2
+
+H2
+
+H2
+
+MySQL
+
+MYSQL
+
+Oracle
+
+ORACLE
+
+SQL Server
+
+SQLSERVER
+
+Sybase
+
+SYBASE
+
+PostgresQL
+
+POSTGRESQL
+
+Hypersonic
+
+HSQL
+
+Apache Derby
+
+DERBY
+
+Informix
+
+INFOMIX
+
+
+
+【注】JNDI获取实体管理工厂：
+
+如果spring应用部署在应用服务器中，Spring可能已经创建好EntityManagerFactory并将其置于JNDI中等饭查询使用，这种情况可使用JNDI来获取对EntityManagerFactory的引用：
+
+<jee:jndi-lookup id="emf" jndi-name="persistence/testDS"/>
+
+
+
+3.1.3、编写基于JPA的DAO
+
+例子：
+
+package com.demo.dao;
+
+
+
+import javax.persistence.EntityManager;
+
+import javax.persistence.PersistenceContext;
+
+
+
+import org.springframework.stereotype.Repository;
+
+import org.springframework.transaction.annotation.Transactional;
+
+
+
+import com.demo.entity.User;
+
+
+
+@Repository
+
+@Transactional
+
+public class JpaDao implements IUserDao {
+
+
+
+   // 注入EntityManager
+
+   @PersistenceContext
+
+   private EntityManager em;
+
+
+
+   // 使用EntityManager
+
+   @Override
+
+   public void addUser(User param) {
+
+      em.persist(param);
+
+
+
+   }
+
+
+
+   @Override
+
+   public User get(Integer id) {
+
+      return em.find(User.class, id);
+
+   }
+
+
+
+   @Override
+
+   public void save(User user) {
+
+      em.merge(user);
+
+   }
+
+}
+
+
+
+上面使用到了@PersistenceContext注解将EntityManager注入。
+
+这样用需要在spring的上下文配置文件中配置一个PersistenceAnnotationBeanPostProcessor：
+
+<!-- 使用EntityManager -->
+
+<bean class="org.springframework.orm.jpa.support.PersistenceAnnotationBeanPostProcessor"/>
+
+
+
+
+
+以上，是如何使用JDBC、Hibernate或JPA为spring应用程序构建持久层，至于选择哪种方案完全取决于偏好。
+
+
+
+三、Spring事务管理
+通过毁掉机制将实际事务实现从事务性代码中抽象出来。
+
+3.1、选择事务管理器
+
+事务管理器结构
+
+
+
+事务处理流程：
+
+
+
+开始事务->绑定资源->使用资源->完成事务->释放资源
+
+3.1.1、JDBC事务
+
+<bean id="transactionManager" class="org.springframework.jdbc.datasource.DataSourceTransactionManager">
+
+      <property name="dataSource" ref="dataSource"/>
+
+</bean>
+
+DataSourceTransactionManager通过调用java.sql.Connection来管理事务，由java.sql.Connection对象来提交、回滚事务。
+
+3.1.2、Hibernate事务
+
+<bean id="transactionManager"
+
+class="org.springframework.orm.hibernate4.HibernateTransactionManager">
+
+   <property name="sessionFactory" ref="sessionFactory" />
+
+</bean>
+
+HibernateTransactionManager通过将事务管理的职责委托给org.hibernate.Transaction对象，org.hibernate.Transaction对象从Hibernate Session中获取，然后由Transaction对象来提交、回滚事务。
+
+3.1.3、JPA事务
+
+<bean id="transactionManager" class="org.springframework.orm.jpa.JpaTransactionManager">
+
+   <property name="entityManagerFactory" ref="entityManagerFactory"/>
+
+</bean>
+
+JpaTransactionManager只需要装配一个JPA实体管理工厂（EntityManagerFactory的任意实现），然后与由工厂产生的JPA EntityManager合作构建事务。
+
+         如果你还希望将事务应用于简单JDBC操作（JDBC操作使用的datasource和EntityManagerFactory使用的dataSource必须相同），那么JpaTransactionManager必须装配一个JpaDialect的实现：
+
+<bean id="jpaDialect" class="org.springframework.orm.jpa.vendor.HibernateJpaVendorAdapter"/>
+
+<!--然后将jpaDialect装配到transactionManager中 -->
+
+<bean id="transactionManager" class="org.springframework.orm.jpa.JpaTransactionManager">
+
+   <property name="entityManagerFactory" ref="entityManagerFactory"/>
+
+   <property name="jpaDialect" ref="jpaDialect"/>
+
+</bean>
+
+3.1.4、JTA事务
+
+如果前面的事务管理器不能满足需求或事物需要跨多个事务资源（两个及以上数据库），需要使用JtaTrasactionManager了：
+
+<bean id="transactionManager"
+
+   class="org.springframework.transaction.jta.JtaTransactionManager">
+
+   <property name="transactionManagerName" value="java:/TrasactionManager"/>
+
+</bean>
+
+         JtaTransactionManager将事务委托给一个JTA的实现（java.transaction.UserTransaction和javax.transaction.TransactionManager），通过UserTransaction来操作事务。JTA规定了应用程序晕一个或多个数据源之间协调事务的标准API，transactionManagerName属性指定了要在JNDI上查找JTA事务管理器。
+
+
+
+3.2、Spring事务实现方式
+
+3.2.1、编码事务
+
+通过TransactionTemplate的回调机制，例如：（UserSeriveImpl.java）
+
+public void addUser(final User u) {
+
+   TransactionTemplate temp = new TransactionTemplate();
+
+   temp.execute(new TransactionCallback<Void>() {
+
+      @Override
+
+      public Void doInTransaction(TransactionStatus txtStatus) {
+
+           // 要执行的事务代码
+
+         try {
+
+            userDao.save(u);
+
+         } catch (RuntimeException e) {
+
+            e.printStackTrace();
+
+            txtStatus.setRollbackOnly();
+
+         }
+
+         return null;
+
+      }
+
+   });
+
+}
+
+此时UserService需要如下装配：
+
+<bean id="userSerive" class="com.demo.service.UserServiceImpl">
+
+   <property name="transactionTemplate">
+
+      <bean class="org.springframework.transaction.support.TransactionTemplate">
+
+         <property name="transactionManager" ref="transactionManager"/>
+
+      </bean>
+
+   </property>
+
+</bean>
+
+优点：可以完全控制事务边界，精确控制事务。
+
+缺点：侵入性的，事务控制在代码中实现，耦合度高
+
+3.2.2、声明式事务
+
+传播行为
+
+传播行为回答了新的事务是该被启动还是被挂起，或者方法是否要在事务环境中运行。
+
+事务的传播行为都在org.springframework.transaction.TransactionDefinition接口中以常量的方式定义出来。
+
+隔离级别
+
+隔离级别定义了一个事务可能受其他并发事务影响的程度。
+
+隔离级别都在org.springframework.transaction.TransactionDefinition接口中以常量的方式定义出来。
+
+只读
+
+事务启动的时候由数据库实施的，只有针对具备启动一个新事务传播行为（PROPAGATION_REQUIRED、PROPAGATION_REQUIRES_NEW和PROPAGATION_NESTED）的方法来说才有意义。【tips】如果使用Hibernate，将事务声明为只读会导致flush模式被设置为FLUSH_NEVER，这会告诉hibernate避免和数据库进行不必要的对象同步，并将所有的更新延迟到事务结束。
+
+事务超时
+
+         长时间事务会导致一些不必要的数据库资源占用。
+
+         超时时钟会在事务开始时启动，只有针对具备启动一个新事务传播行为（PROPAGATION_REQUIRED、PROPAGATION_REQUIRES_NEW和PROPAGATION_NESTED）的方法来说才有意义。
+
+回滚规则
+
+         这些规则定义了哪些异常会导致事务回滚哪些不会，默认情况下，运行时异常会回滚，检查异常不回滚，但是可以声明事务遇到检查异常回滚，运行时异常不回滚。
+
+3.2.3、Spring在XML中定义事务
+
+需要包括beans、aop、tx命名空间。
+
+<tx:advice id="txAdvice" transaction-manager="transactionManager">
+
+   <tx:attributes>
+
+      <!-- 事务执行方式 REQUIRED：指定当前方法必需在事务环境中运行，
+
+      如果当前有事务环境就加入当前正在执行的事务环境，
+
+      如果当前没有事务，就新建一个事务。 这是默认值。 -->
+
+      <tx:method name="create*" propagation="REQUIRED" />
+
+      <tx:method name="save*" propagation="REQUIRED" />
+
+      <tx:method name="add*" propagation="REQUIRED" />
+
+      <tx:method name="update*" propagation="REQUIRED" />
+
+      <tx:method name="remove*" propagation="REQUIRED" />
+
+      <tx:method name="del*" propagation="REQUIRED" />
+
+      <tx:method name="import*" propagation="REQUIRED" />
+
+      <!-- 指定当前方法以非事务方式执行操作，如果当前存在事务，就把当前事务挂起，等我以非事务的状态运行完，再继续原来的事务。 查询定义即可
+
+         read-only="true" 表示只读 -->
+
+      <tx:method name="*" propagation="NOT_SUPPORTED" read-only="true" />
+
+   </tx:attributes>
+
+</tx:advice>
+
+其中<tx:method />有很多属性用来帮助定义方法的事务策略：
+
+隔离级别
+
+含义
+
+isolation
+
+指定事务隔离级别
+
+propagation
+
+指定事务传播规则
+
+read-only
+
+指定事务只读
+
+rollback-for
+
+no-rollback-for
+
+对哪些检查异常进行回滚不提交
+
+指定对哪些异常继续执行不回滚
+
+timeout
+
+定义事务超时时间
+
+
+
+3.2.4、定义注解驱动的事务
+
+在XML配置文件中添加：
+
+<tx:annotation-driven/>
+
+可通过transaction-manager属性（默认值"transactionManager"）来指定事务管理器，如：
+
+<tx:annotation-driven transaction-manager="txManager"/>
+
+<tx:annotation-driven/>告诉Spring检查上下文中所有bean并检查使用到@Transactional注解的bean。
+
+Coding makes world beautiful！
+
+
+
+====================
+
+Spring笔记--xml配置文件详解
+1:bean的基本属性配置:
+
+复制代码
+<!-- id是bean的标识符,必须唯一,如果没有配置id,name默认为标识符
+  　　  如果配置了id,有配置了name,那么name为别名
+     name可以设置多个别名,分隔符可以是空格 逗号 分号
+     class是bean的全限定名,即包名加类名
+        如果不配置id和name,那么可以根据applicationContext.getbean(Class)获取对象,
+　　　scope:bean的作用域,
+　　　　　　取值:singleton:单例的,整个容器只产生一个对象,默认是单例
+　　　　　　　　 prototype:原型,每次获取bean都创建一个新对象
+　　　　　　　　 request:每次请求时创建一个新的对象
+　　　　　　　　 session:在一个会话范围内只产生一个对象
+　　　　　　　　 application:在应用范围内是一个对象
+    autowire:自动装配 用于简化spring的配置
+　　　　　　取值:byname:根据名称(根据set方法中set后面的内容)去查找相应的bean,发现了则装载上
+　　　　　　　　 bytype:根据类型自动装配,不用去管id,但同一种类型的bean只能有一个,f否则报错
+　　　　　　　　 constructor,当通过构造器注入实例化bean时,装配构造方法
+　　　　　　　　　
+         -->
+    <bean id="userMysqlDaoImpl" class="com.wang.dao.impl.UserMysqlDaoImpl"></bean>
+    <bean id="userOracleDaoImpl" class="com.wang.dao.impl.UserOracleDaoImpl"></bean>
+    <bean id="service" class="com.wang.service.UserService">
+        <property name="userDao" ref="userOracleDaoImpl"></property>
+    </bean>
+复制代码
+注意:
+
+　　在整合struts和hibernate框架时,需要将action的scope设为"prototype".
+
+　　可以配置全局的自动装配类型,在beans内,设置default-autowire="...";
+
+2,团队协作开发(import标签):
+
+<!--可以读取到其他配置的xml,如果在当前目录下,直接写文件名,如果是在其他目录下,要写完整包名,以"/"分隔-->
+<import resource="beans1.xml"/>
+ 3:bean的继承(parent属性):
+
+　　如果car1和car2对象同属于类Car,在配置文件中,他们之间就可以使用parent属性来简化代码:
+
+复制代码
+ <bean id="car1" class="com.wang.entity.Car">
+        <property name="brand" value="Audi"/>
+        <property name="price" value="1000000"/>
+  </bean>
+  <bean id="car2" parent="car1">
+        <property name="price" value="3000"></property>
+  </bean>
+复制代码
+这样的配置,car2就继承了car1中的class属性和brand的属性.简化了代码,car1称为父bean,car2称为子bean.car2可以覆盖从car1继承过来的属性,比如price.
+
+4.抽象bean(abstract属性):
+
+　　  当在bean标签中设置属性abstract="true",即指定该bean为抽象bean,不会被实例化,一般仅供被其他的bean继承.
+
+　　 抽象bean,可以不指定class属性,而是在继承它的子Bean中设置class属性.
+
+5.bean的关联(depend-on属性):
+
+　　要求在配置类A的bean时,必须有一个关联的类B的bean,换句话说类A的bean依赖于类B的bean,这时可以在类A的bean标签中设置depend-on="bBean".
+
+　　这样设置的话,类B的bean会先初始化,　　　　
+
+6.使用外部属性文件
+
+　　在配置文件中配置Bean时,有时候需要在bean的配置里混入一些系统部署的细节信息(例如文件路径,数据源配置信息),而这些部署细节实际上需要和bean配置相分离.
+
+在配置c3p0数据源连接池时,我们可以这样写:
+
+复制代码
+ <bean id="dataSource" class="com.mchange.v2.c3p0.ComboPooledDataSource">
+        <property name="user" value="root"></property>
+        <property name="password" value="123"></property>
+        <property name="driverClass" value="com.mysql.jdbc.Driver"></property>
+        <property name="jdbcUrl" value="jdbc:mysql://localhost:3306/test"></property>
+     <!-- <property name="initPoolSize" value="3"></property>
+        <property name="maxPoolSize" value="10"></property>  -->
+    </bean>
+复制代码
+　　为了使数据库配置信息和spring的配置文件分离,便于维护,更好的方法是这样:
+
+　　在src目录下,新建一个db.properties文件,,内容如下:
+
+jdbc.user=root
+jdbc.password=123
+jdbc.driverClass=com.mysql.jdbc.Driver
+jdbc.jdbcUrl=jdbc:mysql://localhost:3306/hibernate
+
+jdbc.initialPoolSize=5
+jdbc.maxPoolSize=10
+
+在beans.xml中:
+
+复制代码
+ <!-- 导入资源文件 -->
+    <context:property-placeholder location="classpath:db.properties"/>
+    <!-- 配置c3p0连接池 -->
+    <bean id="dataSource" class="com.mchange.v2.c3p0.ComboPooledDataSource">
+        <property name="user" value="${jdbc.user}"></property>
+        <property name="password" value="${jdbc.password}"></property>
+        <property name="driverClass" value="${jdbc.driverClass}"></property>
+        <property name="jdbcUrl" value="${jdbc.jdbcUrl}"></property>
+     <!-- <property name="initialPoolSize" value="${jdbc.initPoolSize}"></property>
+        <property name="maxPoolSize" value="${jdbc.maxPoolSize}"></property>  -->
+    </bean>
+复制代码
+  注意使用context的标签,需要在头文件中添加支持context的信息,这里不再给出.
+
+ 7.管理bean的生命周期:
+
+　　SpringIOC容器可以管理bean的生命周期,在Bean生命周期的特定点执行定制的任务.
+
+　　在bean标签中有<init-method>和<destory-method>,为bean指定初始化和销毁方法.当设置了这两个属性后,bean的生命周期是这样的:
+
+　　　　创建bean实例->为bean的属性设置值,或对其他bean进行引用->调用bean的初始化方法->根据需要调用bean自己的方法(使用bean)->容器关闭时,调用bean的销毁方法.
