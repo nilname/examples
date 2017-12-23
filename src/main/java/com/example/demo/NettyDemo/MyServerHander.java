@@ -6,12 +6,13 @@ import io.netty.channel.ChannelHandlerAdapter;
 import io.netty.channel.ChannelHandlerContext;
 
 import java.util.Date;
+
 /**
  * Created by fangqing on 11/25/17.
  */
 
 
-public class MyServerHander extends ChannelHandlerAdapter{
+public class MyServerHander extends ChannelHandlerAdapter {
 
     /*
      * channelAction
@@ -24,10 +25,10 @@ public class MyServerHander extends ChannelHandlerAdapter{
      */
     public void channelActive(ChannelHandlerContext ctx) throws Exception {
 
-        System.out.println(ctx.channel().localAddress().toString()+" channelActive");
+        System.out.println(ctx.channel().localAddress().toString() + " channelActive");
 
         //通知您已经链接上客户端
-        String str = "您已经开启与服务端链接"+" "+new Date()+" "+ctx.channel().localAddress();
+        String str = "您已经开启与服务端链接" + " " + new Date() + " " + ctx.channel().localAddress();
         ByteBuf buf = Unpooled.buffer(str.getBytes().length);
         buf.writeBytes(str.getBytes());
         ctx.writeAndFlush(buf);
@@ -45,7 +46,7 @@ public class MyServerHander extends ChannelHandlerAdapter{
      */
     public void channelInactive(ChannelHandlerContext ctx) throws Exception {
 
-        System.out.println(ctx.channel().localAddress().toString()+" channelInactive");
+        System.out.println(ctx.channel().localAddress().toString() + " channelInactive");
 
     }
 
@@ -63,10 +64,10 @@ public class MyServerHander extends ChannelHandlerAdapter{
             throws Exception {
 
         //注意此处已经不需要手工解码了
-        System.out.println(new Date()+" "+msg);
+        System.out.println(new Date() + " " + msg);
 
         //通知您已经链接上客户端
-        String str = "服务端收到："+new Date()+" "+msg;
+        String str = "服务端收到：" + new Date() + " " + msg;
         ByteBuf buf = Unpooled.buffer(str.getBytes().length);
         buf.writeBytes(str.getBytes());
         ctx.writeAndFlush(buf);
@@ -99,9 +100,8 @@ public class MyServerHander extends ChannelHandlerAdapter{
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause)
             throws Exception {
         ctx.close();
-        System.out.println("异常信息：\r\n"+cause.getMessage());
+        System.out.println("异常信息：\r\n" + cause.getMessage());
     }
-
 
 
 }
