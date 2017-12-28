@@ -1,0 +1,118 @@
+maven工程标准目录结构：
+src
+   -main
+      –bin 脚本库
+      –java java源代码文件
+      –resources 资源库，会自动复制到classes目录里
+      –filters 资源过滤文件
+      –assembly 组件的描述配置（如何打包）
+      –config 配置文件
+      –webapp web应用的目录。WEB-INF、css、js等
+  -test
+    –java 单元测试java源代码文件
+    –resources 测试需要用的资源库
+    –filters 测试资源过滤库
+  -site Site（一些文档）
+target
+LICENSE.txt Project’s license
+README.txt Project’s readme
+target是有存放项目构建后的文件和目录，jar包、war包、编译的class文件等。
+target里的所有内容都是maven构建的时候生成的
+
+问题说明：
+在打包 war 包的时候，普通情况下只会打包src/main/resources下面的资源文件，在开发过程中我们也会把需要的配置文件放在这个目录下。但是有些情况下会和 java文件放在同一个目录下，比如 hibernate 的映射文件 .hbm.xml，还有 mybatis 的 *mapper.xml文件，一般情况都会和对应的 *VO.java 放在同一个目录下。这样利用maven打包时，就需要修改pom.xml文件，来把mapper.xml文件一起打包进jar或者war里了，否则，这些文件不会被打包的。（maven认为src/main/java只是java的源代码路径）。
+下面是我的工程目录，我想要把mapping 里的.xml文件打入 war包，都是mybatis的映射文件，通过测试下面这三种方式都可以：
+这里写图片描述
+方法一：直接在 标签里添加
+
+ <build>
+        <finalName>SSMDemo</finalName>
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+                <includes>
+                    <include>**/*.properties</include>
+                    <include>**/*.xml</include>
+                </includes>
+                <filtering>false</filtering>
+            </resource>
+            <resource>
+                <directory>src/main/java</directory>
+                <includes>
+                    <include>**/*.properties</include>
+                    <include>**/*.xml</include>
+                </includes>
+                <filtering>false</filtering>
+            </resource>
+        </resources>
+</build>
+
+方法二：利用build-helper-maven-plugin插件
+
+<plugs>
+   <!--
+        此plugin可以用
+        利用此plugin，把源代码中的xml文件，
+        打包到相应位置，这里主要是为了打包Mybatis的mapper.xml文件
+        -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>build-helper-maven-plugin</artifactId>
+                <version>1.8</version>
+                <executions>
+                    <execution>
+                        <id>add-resource</id>
+                        <phase>generate-resources</phase>
+                        <goals>
+                            <goal>add-resource</goal>
+                        </goals>
+                        <configuration>
+                            <resources>
+                                <resource>
+                                    <directory>src/main/java</directory>
+                                    <includes>
+                                        <include>**/*.xml</include>
+                                    </includes>
+                                </resource>
+                            </resources>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+<plugs>
+
+方法三：利用maven-resources-plugin插件
+
+<plugins>
+            <!--
+                    此plugin可以用
+                    利用此plugin，把源代码中的xml文件，打包到相应位置，
+                    这里主要是为了打包Mybatis的mapper.xml文件
+                    -->
+            <plugin>
+                <artifactId>maven-resources-plugin</artifactId>
+                <version>2.5</version>
+                <executions>
+                    <execution>
+                        <id>copy-xmls</id>
+                        <phase>process-sources</phase>
+                        <goals>
+                            <goal>copy-resources</goal>
+                        </goals>
+                        <configuration>
+                            <outputDirectory>${basedir}/target/classes</outputDirectory>
+                            <resources>
+                                <resource>
+                                    <directory>${basedir}/src/main/java</directory>
+                                    <includes>
+                                        <include>**/*.xml</include>
+                                    </includes>
+                                </resource>
+                            </resources>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+     </plugins>
+
+以上参考文档：
