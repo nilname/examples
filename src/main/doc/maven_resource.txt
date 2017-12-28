@@ -115,4 +115,180 @@ target里的所有内容都是maven构建的时候生成的
             </plugin>
      </plugins>
 
-以上参考文档：
+==============================================
+
+
+构建Maven项目的时候，如果没有进行特殊的配置，Maven会按照标准的目录结构查找和处理各种类型文件。
+
+
+
+src/main/java和src/test/java
+
+这两个目录中的所有*.java文件会分别在comile和test-comiple阶段被编译，编译结果分别放到了target/classes和targe/test-classes目录中，但是这两个目录中的其他文件都会被忽略掉。
+
+
+
+src/main/resouces和src/test/resources
+
+这两个目录中的文件也会分别被复制到target/classes和target/test-classes目录中。
+
+
+
+target/classes
+
+打包插件默认会把这个目录中的所有内容打入到jar包或者war包中。
+
+
+
+
+
+Maven项目的标准目录结构
+src
+main
+java         源文件
+resources    资源文件
+filters   资源过滤文件
+config   配置文件
+scripts   脚本文件
+webapp   web应用文件
+test
+java    测试源文件
+resources    测试资源文件
+filters    测试资源过滤文件
+it       集成测试
+assembly    assembly descriptors
+site    Site
+target
+generated-sources
+classes
+generated-test-sources
+test-classes
+xxx.jar
+pom.xml
+LICENSE.txt
+NOTICE.txt
+README.txt
+
+
+资源文件的配置
+资源文件是Java代码中要使用的文件。代码在执行的时候会到指定位置去查找这些文件。前面已经说了Maven默认的处理方式，但是有时候我们需要进行自定义的配置。
+
+有时候有些配置文件通常与.java文件一起放在src/main/java目录（如mybatis或hibernate的表映射文件）。有的时候还希望把其他目录中的资源也复制到classes目录中。这些情况下就需要在Pom.xml文件中修改配置了。
+
+可以有两种方法：
+
+一是在<build>元素下添加<resources>进行配置。
+另一种是在<build>的<plugins>子元素中配置maven-resources-plugin等处理资源文件的插件。
+
+
+配置resouces节点
+复制代码
+  <build>
+    .......
+      <resources>
+        <resource>
+            <directory>src/main/resources</directory>
+            <excludes>
+                <exclude>**/*.properties</exclude>
+                <exclude>**/*.xml</exclude>
+             </excludes>
+            <filtering>false</filtering>
+        </resource>
+        <resource>
+            <directory>src/main/java</directory>
+            <includes>
+                <include>**/*.properties</include>
+                <include>**/*.xml</include>
+            </includes>
+            <filtering>false</filtering>
+        </resource>
+    </resources>
+    ......
+</build>
+复制代码
+
+
+配置资源处理插件
+复制代码
+       <plugin>
+            <artifactId>maven-resources-plugin</artifactId>
+            <version>2.5</version>
+            <executions>
+                <execution>
+                    <id>copy-xmls</id>
+                    <phase>process-sources</phase>
+                    <goals>
+                        <goal>copy-resources</goal>
+                    </goals>
+                    <configuration>
+                        <outputDirectory>${basedir}/target/classes</outputDirectory>
+                        <resources>
+                            <resource>
+                                <directory>${basedir}/src/main/java</directory>
+                                <includes>
+                                    <include>**/*.xml</include>
+                                </includes>
+                            </resource>
+                        </resources>
+                    </configuration>
+                </execution>
+            </executions>
+        </plugin>
+复制代码
+
+
+另一个插件也能完成相同的功能
+
+复制代码
+        <plugin>
+            <groupId>org.codehaus.mojo</groupId>
+            <artifactId>build-helper-maven-plugin</artifactId>
+            <version>1.8</version>
+            <executions>
+                <execution>
+                    <id>add-resource</id>
+                    <phase>generate-resources</phase>
+                    <goals>
+                        <goal>add-resource</goal>
+                    </goals>
+                    <configuration>
+                        <resources>
+                            <resource>
+                                <directory>src/main/java</directory>
+                                <includes>
+                                    <include>**/*.xml</include>
+                                </includes>
+                            </resource>
+                        </resources>
+                    </configuration>
+                </execution>
+            </executions>
+        </plugin>
+复制代码
+
+
+
+
+打包时文件相关的配置
+打包时target/classes目录中的资源文件会和class字节码一起被打进jar包或war包中。有时候默认的情况不能完全满足需求，如target/classes目录中的一些文件不希望打入jar包中，就需要额外配置maven-jar-plugin插件。
+
+复制代码
+　　　　　　　<plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <version>2.4</version>
+                <configuration>
+                    <excludes>
+                        <exclude>*.properties</exclude>
+                    </excludes>
+                    <archive>
+                        <manifest>
+                            <addClasspath>true</addClasspath>
+                            <mainClass>xxxxxx.ConsoleLauncher</mainClass>
+                        </manifest>
+                    </archive>
+                </configuration>
+            </plugin>
+复制代码
+
+
