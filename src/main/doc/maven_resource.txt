@@ -20,7 +20,10 @@ target是有存放项目构建后的文件和目录，jar包、war包、编译�
 target里的所有内容都是maven构建的时候生成的
 
 问题说明：
-在打包 war 包的时候，普通情况下只会打包src/main/resources下面的资源文件，在开发过程中我们也会把需要的配置文件放在这个目录下。但是有些情况下会和 java文件放在同一个目录下，比如 hibernate 的映射文件 .hbm.xml，还有 mybatis 的 *mapper.xml文件，一般情况都会和对应的 *VO.java 放在同一个目录下。这样利用maven打包时，就需要修改pom.xml文件，来把mapper.xml文件一起打包进jar或者war里了，否则，这些文件不会被打包的。（maven认为src/main/java只是java的源代码路径）。
+在打包 war 包的时候，普通情况下只会打包src/main/resources下面的资源文件，在开发过程中我们也会把需要的配置文件放在这个目录下。
+但是有些情况下会和 java文件放在同一个目录下，比如 hibernate 的映射文件 .hbm.xml，还有 mybatis 的 *mapper.xml文件，
+一般情况都会和对应的 *VO.java 放在同一个目录下。这样利用maven打包时，就需要修改pom.xml文件，来把mapper.xml文件一起打包进jar或者war里了，
+否则，这些文件不会被打包的。（maven认为src/main/java只是java的源代码路径）。
 下面是我的工程目录，我想要把mapping 里的.xml文件打入 war包，都是mybatis的映射文件，通过测试下面这三种方式都可以：
 这里写图片描述
 方法一：直接在 标签里添加
@@ -173,7 +176,8 @@ README.txt
 资源文件的配置
 资源文件是Java代码中要使用的文件。代码在执行的时候会到指定位置去查找这些文件。前面已经说了Maven默认的处理方式，但是有时候我们需要进行自定义的配置。
 
-有时候有些配置文件通常与.java文件一起放在src/main/java目录（如mybatis或hibernate的表映射文件）。有的时候还希望把其他目录中的资源也复制到classes目录中。这些情况下就需要在Pom.xml文件中修改配置了。
+有时候有些配置文件通常与.java文件一起放在src/main/java目录（如mybatis或hibernate的表映射文件）。有的时候还希望把其他目录中的资源也复制到classes目录中。
+这些情况下就需要在Pom.xml文件中修改配置了。
 
 可以有两种方法：
 
@@ -270,7 +274,8 @@ README.txt
 
 
 打包时文件相关的配置
-打包时target/classes目录中的资源文件会和class字节码一起被打进jar包或war包中。有时候默认的情况不能完全满足需求，如target/classes目录中的一些文件不希望打入jar包中，就需要额外配置maven-jar-plugin插件。
+打包时target/classes目录中的资源文件会和class字节码一起被打进jar包或war包中。有时候默认的情况不能完全满足需求，
+如target/classes目录中的一些文件不希望打入jar包中，就需要额外配置maven-jar-plugin插件。
 
 复制代码
 　　　　　　　<plugin>
@@ -294,7 +299,8 @@ README.txt
 
 =======================================================
 
-Maven可以使用mvn package指令对项目进行打包，如果使用java -jar xxx.jar执行运行jar文件，会出现"no main manifest attribute, in xxx.jar"（没有设置Main-Class）、ClassNotFoundException（找不到依赖包）等错误。
+Maven可以使用mvn package指令对项目进行打包，如果使用java -jar xxx.jar执行运行jar文件，
+会出现"no main manifest attribute, in xxx.jar"（没有设置Main-Class）、ClassNotFoundException（找不到依赖包）等错误。
 要想jar包能直接通过java -jar xxx.jar运行，需要满足：
 1、在jar包中的META-INF/MANIFEST.MF中指定Main-Class，这样才能确定程序的入口在哪里；
 2、要能加载到依赖包。
@@ -342,14 +348,16 @@ Maven可以使用mvn package指令对项目进行打包，如果使用java -jar 
 </build>
 
 
-maven-jar-plugin用于生成META-INF/MANIFEST.MF文件的部分内容，<mainClass>com.xxg.Main</mainClass>指定MANIFEST.MF中的Main-Class，<addClasspath>true</addClasspath>会在MANIFEST.MF加上Class-Path项并配置依赖包，<classpathPrefix>lib/</classpathPrefix>指定依赖包所在目录。
+maven-jar-plugin用于生成META-INF/MANIFEST.MF文件的部分内容，<mainClass>com.xxg.Main</mainClass>
+指定MANIFEST.MF中的Main-Class，<addClasspath>true</addClasspath>会在MANIFEST.MF加上Class-Path项并配置依赖包，
+<classpathPrefix>lib/</classpathPrefix>指定依赖包所在目录。
 例如下面是一个通过maven-jar-plugin插件生成的MANIFEST.MF文件片段：
 [plain] view plain copy
 Class-Path: lib/commons-logging-1.2.jar lib/commons-io-2.4.jar
 Main-Class: com.xxg.Main
 
-只是生成MANIFEST.MF文件还不够，maven-dependency-plugin插件用于将依赖包拷贝到<outputDirectory>${project.build.directory}/lib</outputDirectory>指定的位置，即lib目录下。
-配置完成后，通过mvn package指令打包，会在target目录下生成jar包，并将依赖包拷贝到target/lib目录下，目录结构如下：
+只是生成MANIFEST.MF文件还不够，maven-dependency-plugin插件用于将依赖包拷贝到<outputDirectory>${project.build.directory}/lib</outputDirectory>指定的位置，
+即lib目录下。配置完成后，通过mvn package指令打包，会在target目录下生成jar包，并将依赖包拷贝到target/lib目录下，目录结构如下：
 
 指定了Main-Class，有了依赖包，那么就可以直接通过java -jar xxx.jar运行jar包。
 这种方式生成jar包有个缺点，就是生成的jar包太多不便于管理，下面两种方式只生成一个jar文件，包含项目本身的代码、资源以及所有的依赖包。
@@ -448,8 +456,11 @@ mvn package assembly:single
     </plugins>
 </build>
 
-配置完成后，执行mvn package即可打包。在target目录下会生成两个jar包，注意不是original-xxx.jar文件，而是另外一个。和maven-assembly-plugin一样，生成的jar文件包含了所有依赖，所以可以直接运行。
-如果项目中用到了Spring Framework，将依赖打到一个jar包中，运行时会出现读取XML schema文件出错。原因是Spring Framework的多个jar包中包含相同的文件spring.handlers和spring.schemas，如果生成一个jar包会互相覆盖。为了避免互相影响，可以使用AppendingTransformer来对文件内容追加合并：
+配置完成后，执行mvn package即可打包。在target目录下会生成两个jar包，注意不是original-xxx.jar文件，而是另外一个。和maven-assembly-plugin一样，
+生成的jar文件包含了所有依赖，所以可以直接运行。
+如果项目中用到了Spring Framework，将依赖打到一个jar包中，运行时会出现读取XML schema文件出错。
+原因是Spring Framework的多个jar包中包含相同的文件spring.handlers和spring.schemas，如果生成一个jar包会互相覆盖。
+为了避免互相影响，可以使用AppendingTransformer来对文件内容追加合并：
 [html] view plain copy
 <build>
     <plugins>
